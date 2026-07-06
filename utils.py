@@ -1,4 +1,5 @@
 import shutil
+import uuid
 import zipfile
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -21,7 +22,7 @@ def ensure_dir(path):
 
 
 def spiral_coefficient(pitch):
-    """根据螺距返回阿基米德螺线系数 b。"""
+    """根据螺距返回阿基米德螺线系数。"""
     return pitch / (2.0 * np.pi)
 
 
@@ -32,7 +33,7 @@ def spiral_arc_length(theta, b):
 
 
 def solve_theta_from_arc_length(target_arc_length, b, upper_bound, tol=1e-12, max_iter=100):
-    """由弧长反求龙头参数 theta。"""
+    """由弧长反求龙头参数。"""
     low = 0.0
     high = float(upper_bound)
     for _ in range(max_iter):
@@ -88,7 +89,7 @@ def speed_from_theta(theta, theta_dot, b):
 
 
 def build_position_dataframe(position, time_points):
-    """将位置结果整理为题目表格。"""
+    """将第一问位置结果整理为表格。"""
     columns = dragon_data.get_time_labels(time_points)
     rows = []
     for point_index in range(position.shape[0]):
@@ -99,13 +100,13 @@ def build_position_dataframe(position, time_points):
 
 
 def build_speed_dataframe(speed, time_points):
-    """将速度结果整理为题目表格。"""
+    """将第一问速度结果整理为表格。"""
     columns = dragon_data.get_time_labels(time_points)
     return pd.DataFrame(speed, index=dragon_data.get_speed_row_labels(), columns=columns)
 
 
 def build_summary_tables(position_df, speed_df):
-    """整理论文需要的关键时刻表。"""
+    """整理论文需要的第一问摘要表。"""
     key_columns = [column for column in dragon_data.get_time_labels(dragon_data.QUESTION1_KEY_TIMES) if column in position_df.columns]
 
     position_rows = [
@@ -133,10 +134,22 @@ def build_summary_tables(position_df, speed_df):
         "第201节龙身 (m/s)",
         "龙尾（后） (m/s)",
     ]
+    return position_df.loc[position_rows, key_columns], speed_df.loc[speed_rows, key_columns]
 
-    summary_position = position_df.loc[position_rows, key_columns]
-    summary_speed = speed_df.loc[speed_rows, key_columns]
-    return summary_position, summary_speed
+
+def build_result2_dataframe(position_column, speed_column):
+    """将第二问单时刻结果整理为表格。"""
+    data = np.column_stack([position_column[:, 0], position_column[:, 1], speed_column])
+    return pd.DataFrame(
+        data,
+        index=dragon_data.get_result2_row_labels(),
+        columns=["横坐标x (m)", "纵坐标y (m)", "速度 (m/s)"],
+    )
+
+
+def build_question2_summary_dataframe(result2_df):
+    """提取第二问要求的关键节点表。"""
+    return result2_df.loc[dragon_data.get_question2_summary_labels()]
 
 
 def save_dataframe_exports(dataframe, csv_path, markdown_path):
@@ -150,7 +163,7 @@ def save_dataframe_exports(dataframe, csv_path, markdown_path):
 
 
 def excel_column_name(index):
-    """数字列号转 Excel 列名，1 -> A。"""
+    """数字列号转 Excel 列名。"""
     name = []
     while index > 0:
         index, remainder = divmod(index - 1, 26)
@@ -159,7 +172,7 @@ def excel_column_name(index):
 
 
 def create_sheet_data(dataframe):
-    """将 DataFrame 转为 worksheet 的 sheetData 节点。"""
+    """将 DataFrame 转为 sheetData 节点。"""
     sheet_data = ET.Element(f"{{{SHEET_NS}}}sheetData")
 
     header_row = ET.SubElement(sheet_data, f"{{{SHEET_NS}}}row", {"r": "1"})
@@ -169,8 +182,8 @@ def create_sheet_data(dataframe):
             f"{{{SHEET_NS}}}c",
             {"r": f"{excel_column_name(column_index)}1", "t": "inlineStr"},
         )
-        is_node = ET.SubElement(cell, f"{{{SHEET_NS}}}is")
-        ET.SubElement(is_node, f"{{{SHEET_NS}}}t").text = str(column_name)
+        text_node = ET.SubElement(ET.SubElement(cell, f"{{{SHEET_NS}}}is"), f"{{{SHEET_NS}}}t")
+        text_node.text = str(column_name)
 
     for row_index, (label, values) in enumerate(dataframe.iterrows(), start=2):
         row = ET.SubElement(sheet_data, f"{{{SHEET_NS}}}row", {"r": str(row_index)})
@@ -179,8 +192,8 @@ def create_sheet_data(dataframe):
             f"{{{SHEET_NS}}}c",
             {"r": f"A{row_index}", "t": "inlineStr"},
         )
-        label_is = ET.SubElement(label_cell, f"{{{SHEET_NS}}}is")
-        ET.SubElement(label_is, f"{{{SHEET_NS}}}t").text = str(label)
+        text_node = ET.SubElement(ET.SubElement(label_cell, f"{{{SHEET_NS}}}is"), f"{{{SHEET_NS}}}t")
+        text_node.text = str(label)
 
         for column_index, value in enumerate(values, start=2):
             if pd.isna(value):
@@ -205,20 +218,15 @@ def load_sheet_targets(template_path):
         return sheet_targets
 
 
-def write_result1_excel(position_df, speed_df, output_path):
-    """按题目模板写出 result1.xlsx。"""
-    template_path = dragon_data.REFERENCE_DIR / "result1.xlsx"
+def _write_template_excel(output_path, template_path, replacements):
+    """按模板替换指定 sheet 的数据。"""
     ensure_dir(Path(output_path).parent)
-    shutil.copyfile(template_path, output_path)
+    output_path = Path(output_path)
+    source_copy_path = output_path.with_name(f"{output_path.stem}_{uuid.uuid4().hex}.source.xlsx")
+    temp_path = output_path.with_name(f"{output_path.stem}_{uuid.uuid4().hex}.tmp.xlsx")
+    shutil.copyfile(template_path, source_copy_path)
 
-    sheet_targets = load_sheet_targets(template_path)
-    replacements = {
-        sheet_targets["位置"]: position_df,
-        sheet_targets["速度"]: speed_df,
-    }
-
-    temp_path = Path(output_path).with_suffix(".tmp")
-    with zipfile.ZipFile(output_path, "r") as source_zip, zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as dest_zip:
+    with zipfile.ZipFile(source_copy_path, "r") as source_zip, zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as dest_zip:
         for item in source_zip.infolist():
             content = source_zip.read(item.filename)
             if item.filename in replacements:
@@ -228,15 +236,36 @@ def write_result1_excel(position_df, speed_df, output_path):
                     end_col = excel_column_name(replacements[item.filename].shape[1] + 1)
                     end_row = replacements[item.filename].shape[0] + 1
                     dimension.set("ref", f"A1:{end_col}{end_row}")
-
                 old_sheet_data = root.find(f"{{{SHEET_NS}}}sheetData")
                 if old_sheet_data is not None:
                     root.remove(old_sheet_data)
                 root.append(create_sheet_data(replacements[item.filename]))
                 content = ET.tostring(root, encoding="utf-8", xml_declaration=True)
             dest_zip.writestr(item, content)
-
+    source_copy_path.unlink(missing_ok=True)
+    output_path.unlink(missing_ok=True)
     temp_path.replace(output_path)
+
+
+def write_result1_excel(position_df, speed_df, output_path):
+    """按模板写出第一问 Excel。"""
+    template_path = dragon_data.REFERENCE_DIR / "result1.xlsx"
+    sheet_targets = load_sheet_targets(template_path)
+    replacements = {
+        sheet_targets["位置"]: position_df,
+        sheet_targets["速度"]: speed_df,
+    }
+    _write_template_excel(output_path, template_path, replacements)
+
+
+def write_result2_excel(result2_df, output_path):
+    """按模板写出第二问 Excel。"""
+    template_path = dragon_data.REFERENCE_DIR / "result2.xlsx"
+    sheet_targets = load_sheet_targets(template_path)
+    replacements = {
+        sheet_targets["Sheet1"]: result2_df,
+    }
+    _write_template_excel(output_path, template_path, replacements)
 
 
 def save_question1_figures(position, speed, time_points):
@@ -282,3 +311,207 @@ def save_question1_figures(position, speed, time_points):
     plt.close()
 
     return figure_path_1, figure_path_2
+
+
+def normalize_vector(vector):
+    """返回单位向量。"""
+    vector = np.asarray(vector, dtype=float)
+    norm = np.linalg.norm(vector)
+    if norm == 0:
+        raise ValueError("零向量不能归一化")
+    return vector / norm
+
+
+def perpendicular_vector(direction):
+    """返回二维法向量。"""
+    direction = np.asarray(direction, dtype=float)
+    return np.array([-direction[1], direction[0]], dtype=float)
+
+
+def build_rectangle_from_center(center, direction, length, width):
+    """由中心点和方向构造矩形。"""
+    direction = normalize_vector(direction)
+    normal = perpendicular_vector(direction)
+    center = np.asarray(center, dtype=float)
+    half_long = 0.5 * length
+    half_wide = 0.5 * width
+    corners = np.array(
+        [
+            center + half_long * direction + half_wide * normal,
+            center + half_long * direction - half_wide * normal,
+            center - half_long * direction - half_wide * normal,
+            center - half_long * direction + half_wide * normal,
+        ]
+    )
+    return {
+        "center": center,
+        "direction": direction,
+        "normal": normal,
+        "length": float(length),
+        "width": float(width),
+        "corners": corners,
+    }
+
+
+def build_bench_rectangle(front_point, rear_point, bench_length, bench_width, bench_index):
+    """由板凳前后把手点构造矩形。"""
+    front_point = np.asarray(front_point, dtype=float)
+    rear_point = np.asarray(rear_point, dtype=float)
+    center = 0.5 * (front_point + rear_point)
+    direction = front_point - rear_point
+    rectangle = build_rectangle_from_center(center, direction, bench_length, bench_width)
+    rectangle["bench_index"] = bench_index
+    rectangle["front_point"] = front_point
+    rectangle["rear_point"] = rear_point
+    return rectangle
+
+
+def rectangle_projection_half_extent(rectangle, axis):
+    """返回矩形在某轴上的投影半宽。"""
+    axis = normalize_vector(axis)
+    return (
+        0.5 * rectangle["length"] * abs(np.dot(axis, rectangle["direction"]))
+        + 0.5 * rectangle["width"] * abs(np.dot(axis, rectangle["normal"]))
+    )
+
+
+def rectangle_sat_gap(rectangle_a, rectangle_b):
+    """用 SAT 返回两矩形的净间隙。"""
+    axes = [
+        rectangle_a["direction"],
+        rectangle_a["normal"],
+        rectangle_b["direction"],
+        rectangle_b["normal"],
+    ]
+    center_delta = rectangle_a["center"] - rectangle_b["center"]
+    axis_gaps = []
+    for axis in axes:
+        axis = normalize_vector(axis)
+        projection_distance = abs(np.dot(center_delta, axis))
+        gap = projection_distance - rectangle_projection_half_extent(rectangle_a, axis) - rectangle_projection_half_extent(rectangle_b, axis)
+        axis_gaps.append((gap, axis))
+
+    gap, axis = max(axis_gaps, key=lambda item: item[0])
+    return {
+        "gap": float(gap),
+        "axis": axis,
+        "axis_gaps": axis_gaps,
+    }
+
+
+def plot_rectangle(ax, rectangle, color, label=None, linewidth=1.5, alpha=0.2):
+    """在坐标轴上绘制矩形。"""
+    corners = rectangle["corners"]
+    polygon = np.vstack([corners, corners[0]])
+    ax.fill(polygon[:, 0], polygon[:, 1], color=color, alpha=alpha)
+    ax.plot(polygon[:, 0], polygon[:, 1], color=color, linewidth=linewidth, label=label)
+
+
+def save_question2_gap_curve(gap_history, output_path, safe_time=None, collision_time=None):
+    """保存 G(t) 曲线图。"""
+    ensure_dir(Path(output_path).parent)
+    ordered = sorted(gap_history.items())
+    times = np.array([item[0] for item in ordered], dtype=float)
+    gaps = np.array([item[1] for item in ordered], dtype=float)
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(times, gaps, marker="o", markersize=2, linewidth=1.0)
+    plt.axhline(0.0, color="red", linestyle="--", linewidth=1.0)
+    y_min = float(np.min(gaps))
+    y_max = float(np.max(gaps))
+    y_span = y_max - y_min if y_max > y_min else 1.0
+
+    if safe_time is not None:
+        plt.axvline(safe_time, color="#2ca02c", linestyle="--", linewidth=1.2)
+        plt.text(
+            safe_time,
+            y_min + 0.75 * y_span,
+            f"safe = {safe_time:.6f} s",
+            rotation=90,
+            color="#2ca02c",
+            va="center",
+            ha="right",
+            fontsize=9,
+            bbox={"facecolor": "white", "edgecolor": "#2ca02c", "alpha": 0.8},
+        )
+    if collision_time is not None:
+        plt.axvline(collision_time, color="#d62728", linestyle="--", linewidth=1.2)
+        plt.text(
+            collision_time,
+            y_min + 0.25 * y_span,
+            f"collision = {collision_time:.6f} s",
+            rotation=90,
+            color="#d62728",
+            va="center",
+            ha="left",
+            fontsize=9,
+            bbox={"facecolor": "white", "edgecolor": "#d62728", "alpha": 0.8},
+        )
+    plt.xlabel("Time (s)")
+    plt.ylabel("G(t)")
+    plt.title("Question 2 Collision Gap History")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=200)
+    plt.close()
+
+
+def save_question2_local_geometry(rectangles, focus_pair, layer_indices, output_path):
+    """保存临界时刻局部几何图。"""
+    ensure_dir(Path(output_path).parent)
+    inner_indices, outer_indices = layer_indices
+    bench_map = {rectangle["bench_index"]: rectangle for rectangle in rectangles}
+    focus_inner, focus_outer = focus_pair
+
+    plt.figure(figsize=(8, 8))
+    for bench_index in inner_indices:
+        rectangle = bench_map[bench_index]
+        plot_rectangle(plt.gca(), rectangle, "#1f77b4", linewidth=1.0, alpha=0.12)
+    for bench_index in outer_indices:
+        rectangle = bench_map[bench_index]
+        plot_rectangle(plt.gca(), rectangle, "#ff7f0e", linewidth=1.0, alpha=0.12)
+
+    plot_rectangle(plt.gca(), bench_map[focus_inner], "#d62728", label=f"Bench {focus_inner}", linewidth=2.0, alpha=0.30)
+    plot_rectangle(plt.gca(), bench_map[focus_outer], "#2ca02c", label=f"Bench {focus_outer}", linewidth=2.0, alpha=0.30)
+
+    plt.xlabel("x (m)")
+    plt.ylabel("y (m)")
+    plt.title("Question 2 Local Geometry Near First Collision")
+    plt.axis("equal")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=200)
+    plt.close()
+
+
+def save_question2_sat_projection(rectangle_a, rectangle_b, sat_result, output_path):
+    """保存 SAT 投影示意图。"""
+    ensure_dir(Path(output_path).parent)
+    axis = normalize_vector(sat_result["axis"])
+
+    fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(12, 5))
+    plot_rectangle(ax_left, rectangle_a, "#d62728", label=f"Bench {rectangle_a['bench_index']}", linewidth=2.0, alpha=0.25)
+    plot_rectangle(ax_left, rectangle_b, "#2ca02c", label=f"Bench {rectangle_b['bench_index']}", linewidth=2.0, alpha=0.25)
+    center = 0.5 * (rectangle_a["center"] + rectangle_b["center"])
+    axis_scale = max(rectangle_a["length"], rectangle_b["length"])
+    ax_left.arrow(center[0], center[1], axis[0] * axis_scale, axis[1] * axis_scale, width=0.02, color="black")
+    ax_left.set_title("Rectangles and SAT Axis")
+    ax_left.set_aspect("equal")
+    ax_left.legend()
+
+    def interval(rectangle):
+        projection_center = np.dot(rectangle["center"], axis)
+        half_extent = rectangle_projection_half_extent(rectangle, axis)
+        return projection_center - half_extent, projection_center + half_extent
+
+    left_a, right_a = interval(rectangle_a)
+    left_b, right_b = interval(rectangle_b)
+    ax_right.plot([left_a, right_a], [1, 1], color="#d62728", linewidth=6)
+    ax_right.plot([left_b, right_b], [0, 0], color="#2ca02c", linewidth=6)
+    ax_right.set_yticks([0, 1])
+    ax_right.set_yticklabels([f"Bench {rectangle_b['bench_index']}", f"Bench {rectangle_a['bench_index']}"])
+    ax_right.set_title(f"Projection Interval Gap = {sat_result['gap']:.6f}")
+    ax_right.grid(True, axis="x", linestyle="--", alpha=0.4)
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200)
+    plt.close(fig)
