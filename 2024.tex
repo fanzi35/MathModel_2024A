@@ -1,15 +1,121 @@
-\documentclass[UTF-8]{ctexart}
+\documentclass[UTF-8,a4paper,zihao=-4]{ctexart}
+\usepackage[a4paper,left=3cm,right=2.5cm,top=3cm,bottom=2.5cm]{geometry}
 \usepackage{graphicx} % Required for inserting images
-\usepackage{}
+\usepackage[backend=biber,style=gb7714-2015]{biblatex} 
+\addbibresource{ref.bib} %待补上参考文献 
+\usepackage{amsmath,amssymb}   % 公式
+\usepackage{graphicx}          % 插图
+\usepackage{booktabs}           % 三线表
+\usepackage{hyperref}           % 超链接（最后加载，少数例外）
+\pagestyle{empty} 
+\ctexset{
+  section = {
+    number = \chinese{section},   % 中文数字：一、二、三…
+    format = \zihao{3}\heiti\centering,
+    aftername = \quad,            % 编号和标题之间的空格（可调）
+    % 如果你想变成“一、绪论”（带顿号），把 aftername 改成 \hspace{1em} 或直接写顿号
+  }
+}
+\makeatletter
+\renewcommand{\maketitle}{
+    \begin{center}
+        {\zihao{2}\heiti\@title\par}
+    \end{center}
+    \vspace{0.5em}
+}
+\makeatother
 
-\title{2024A}
-\author{范凯\hspace{1.0cm}范子熠\hspace{1.0cm}陆宝升}
-\date{2026年7月6日}
+\makeatletter
+\renewenvironment{abstract}
+{
+    \begin{center}
+        {\zihao{3}\textbf{摘要}}
+    \end{center}
+    \zihao{3}
+}
+{}
+\makeatother
 
 \begin{document}
 
+\title{“板凳龙”闹元宵}
+\date{}
 \maketitle
 
-\section{Introduction}
+
+%%%%%摘要%%%%%
+\begin{abstract}
+
+“板凳龙”，又称“盘龙”，是浙闽地区的传统地方民俗文化活动，人们将数十条板凳相连，以圆盘状进行“盘龙”活动。因此，本文集中研究“盘龙”活动中的“盘入”与“盘出”行为，并研究龙头与龙身之间的关系。
+    
+\textbf{针对问题一：} 舞龙队沿等距螺线顺时针盘入，各把手中心位于螺旋线上，故本文将盘龙过程\textbf{建立极坐标系}，将盘龙等距螺线转为\textbf{极坐标方程}，依据此采用\textbf{积分与求导}的方法，计算整个舞龙队的位置和速度。
+    
+\textbf{针对问题二：} 
+    
+\textbf{针对问题三：} 
+
+\textbf{针对问题四：} 
+    
+\textbf{针对问题五：} 
+
+\noindent \textbf{关键词：} 等距螺线；极坐标；位置与速度迭代；
+\end{abstract}
+
+%%%%%问题重述%%%%%
+\newpage
+\section{问题背景与重述}
+\subsection{问题背景}
+正文……
+
+\subsection{问题要求}
+正文……
+
+%%%%%问题分析%%%%%
+\section{问题分析}
+\subsection{问题一分析}
+
+\subsection{问题二分析}
+
+\subsection{问题三分析}
+
+\subsection{问题四分析}
+
+\subsection{问题五分析}
+
+%%%%%准备工作%%%%%
+\section{初步准备}
+\subsection{模型假设}
+\begin{enumerate}
+    \item 盘龙过程按照等距螺线盘入，对于未进入预设等距螺线的龙身部分，认为其也处于相同螺距的螺线上
+\end{enumerate}
+
+\subsection{符号说明}
+本文所使用的符号及说明如下表所示。
+\begin{table}[htbp]
+\centering
+\zihao{-4}
+
+\caption{符号说明}
+\begin{tabular}{ccc}
+\toprule
+符号 & 说明 & 单位 \\
+\midrule
+$E$ & 能量 & J \\
+$t$ & 时间 & s \\
+$x$ & 位置变量 & m \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%%%%%参考文献%%%%%s
+\begin{thebibliography}{99}   % 99 是最大编号宽度
+\bibitem{ref1} 张三, 李四. 论文标题[J]. 计算机学报, 2023, 46(1): 1-10.
+\bibitem{ref2} Knuth D E. The TEXbook[M]. Addison-Wesley, 1984.
+\end{thebibliography}
+
+\section*{附录}
+\appendix
+\subsection*{文件清单}       % 显示为“附录 A 算法证明”
+\subsection*{代码}       % 显示为“附录 B 数据表格”
 
 \end{document}
