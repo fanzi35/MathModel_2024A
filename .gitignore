@@ -11,8 +11,7 @@ env/
 # PyCharm
 .idea/
 
-# Outputs
-outputs/
+# Logs
 *.log
 
 # System
