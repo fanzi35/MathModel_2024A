@@ -58,24 +58,16 @@ def get_state_at_time(time_value, cache=None):
     return get_states_for_times([time_value], cache=cache)[0]
 
 
-def get_inner_outer_layer_indices(theta):
-    """根据龙头参数划分最内层和外一层板凳。"""
+def get_head_collision_candidate_indices(theta):
+    """按与龙头前把手极角差小于 4π 选取候选龙身板凳。"""
     theta_head = theta[0]
     theta_front = theta[:-1]
-    theta_rear = theta[1:]
-    theta_mid = 0.5 * (theta_front + theta_rear)
-
-    inner_indices = [
+    candidate_indices = [
         bench_index
-        for bench_index in range(dragon_data.BENCH_COUNT)
-        if theta_head <= theta_front[bench_index] < theta_head + 2.0 * np.pi
+        for bench_index in range(2, len(theta_front))
+        if 0.0 < theta_front[bench_index] - theta_head < 4.0 * np.pi
     ]
-    outer_indices = [
-        bench_index
-        for bench_index in range(dragon_data.BENCH_COUNT)
-        if theta_head + 2.0 * np.pi <= theta_front[bench_index] < theta_head + 4.0 * np.pi
-    ]
-    return inner_indices, outer_indices, theta_mid
+    return candidate_indices, theta_front
 
 
 def build_bench_rectangles(position):
@@ -95,48 +87,32 @@ def build_bench_rectangles(position):
     return rectangles
 
 
-def build_candidate_pairs(theta_mid, inner_indices, outer_indices, candidate_window=None):
-    """只在最内两层之间构造候选板凳对。"""
-    if candidate_window is None:
-        candidate_window = dragon_data.QUESTION2_CANDIDATE_WINDOW
-
-    candidate_pairs = set()
-    if not inner_indices or not outer_indices:
-        return []
-
-    outer_theta = np.array([theta_mid[index] for index in outer_indices], dtype=float)
-    for inner_index in inner_indices:
-        target_theta = theta_mid[inner_index] + 2.0 * np.pi
-        nearest_position = int(np.argmin(np.abs(outer_theta - target_theta)))
-        left = max(0, nearest_position - candidate_window)
-        right = min(len(outer_indices) - 1, nearest_position + candidate_window)
-        for outer_position in range(left, right + 1):
-            candidate_pairs.add((inner_index, outer_indices[outer_position]))
-
-    return sorted(candidate_pairs)
+def build_candidate_pairs(candidate_indices):
+    """只构造龙头板凳与候选龙身板凳的比较对。"""
+    return [(0, bench_index) for bench_index in candidate_indices]
 
 
-def evaluate_collision_from_state(state, candidate_window=None):
+def evaluate_collision_from_state(state):
     """在给定时刻状态下计算最小净间隙。"""
-    theta = state["theta"]
     position = state["position"]
+    theta = state["theta"]
 
-    inner_indices, outer_indices, theta_mid = get_inner_outer_layer_indices(theta)
+    candidate_indices, _ = get_head_collision_candidate_indices(theta)
     rectangles = build_bench_rectangles(position)
-    candidate_pairs = build_candidate_pairs(theta_mid, inner_indices, outer_indices, candidate_window=candidate_window)
+    candidate_pairs = build_candidate_pairs(candidate_indices)
 
     min_gap = math.inf
     best_pair = None
     best_sat = None
-    for inner_index, outer_index in candidate_pairs:
-        sat_result = utils.rectangle_sat_gap(rectangles[inner_index], rectangles[outer_index])
+    for head_index, bench_index in candidate_pairs:
+        sat_result = utils.rectangle_sat_gap(rectangles[head_index], rectangles[bench_index])
         if sat_result["gap"] < min_gap:
             min_gap = sat_result["gap"]
-            best_pair = (inner_index, outer_index)
+            best_pair = (head_index, bench_index)
             best_sat = sat_result
 
     if best_pair is None:
-        raise ValueError("未找到最内层与外一层的候选板凳对")
+        raise ValueError("未找到龙头板凳与内两层候选龙身板凳的比较对")
 
     return {
         "time": state["time"],
@@ -144,14 +120,13 @@ def evaluate_collision_from_state(state, candidate_window=None):
         "best_pair": best_pair,
         "best_sat": best_sat,
         "rectangles": rectangles,
-        "inner_indices": inner_indices,
-        "outer_indices": outer_indices,
+        "candidate_indices": candidate_indices,
         "candidate_pairs": candidate_pairs,
         "state": state,
     }
 
 
-def evaluate_collision_state(time_value, cache=None, candidate_window=None):
+def evaluate_collision_state(time_value, cache=None):
     """计算某个时刻的碰撞状态。"""
     if cache is None:
         cache = _build_cache()
@@ -159,13 +134,13 @@ def evaluate_collision_state(time_value, cache=None, candidate_window=None):
     key = _time_key(time_value)
     if key not in cache["collision"]:
         state = get_state_at_time(time_value, cache=cache)
-        collision_state = evaluate_collision_from_state(state, candidate_window=candidate_window)
+        collision_state = evaluate_collision_from_state(state)
         cache["collision"][key] = collision_state
         cache["gap_history"][round(collision_state["time"], 6)] = collision_state["global_gap"]
     return cache["collision"][key]
 
 
-def evaluate_collision_times(time_points, cache=None, candidate_window=None):
+def evaluate_collision_times(time_points, cache=None):
     """批量计算多个时刻的碰撞状态。"""
     if cache is None:
         cache = _build_cache()
@@ -175,7 +150,7 @@ def evaluate_collision_times(time_points, cache=None, candidate_window=None):
     for state in states:
         key = _time_key(state["time"])
         if key not in cache["collision"]:
-            collision_state = evaluate_collision_from_state(state, candidate_window=candidate_window)
+            collision_state = evaluate_collision_from_state(state)
             cache["collision"][key] = collision_state
             cache["gap_history"][round(collision_state["time"], 6)] = collision_state["global_gap"]
         results.append(cache["collision"][key])
@@ -192,7 +167,6 @@ def layered_refine_collision_interval(
     cache=None,
     scan_steps=None,
     max_time=None,
-    candidate_window=None,
 ):
     """按 1s/0.1s/0.01s 分层细化碰撞区间。"""
     if cache is None:
@@ -205,25 +179,21 @@ def layered_refine_collision_interval(
     arc_time_limit = float(utils.spiral_arc_length(dragon_data.QUESTION1_INITIAL_THETA, b))
     max_time = min(float(max_time), arc_time_limit - 1e-6)
 
-    initial_state = evaluate_collision_state(0.0, cache=cache, candidate_window=candidate_window)
+    initial_state = evaluate_collision_state(0.0, cache=cache)
     if initial_state["global_gap"] <= 0:
         raise ValueError("初始时刻已经碰撞，无法继续搜索")
 
+    level_records = []
     left_time = 0.0
     right_time = None
-    level_records = []
-
     for level_index, step in enumerate(scan_steps):
         if level_index == 0:
             time_grid = _make_time_grid(0.0, max_time, step)
         else:
             time_grid = _make_time_grid(left_time, right_time, step)
-
         collision_states = []
         for time_value in time_grid:
-            collision_states.append(
-                evaluate_collision_state(time_value, cache=cache, candidate_window=candidate_window)
-            )
+            collision_states.append(evaluate_collision_state(time_value, cache=cache))
             if len(collision_states) >= 2:
                 previous_state = collision_states[-2]
                 current_state = collision_states[-1]
@@ -247,10 +217,8 @@ def layered_refine_collision_interval(
                     }
                 )
                 break
-
         if new_right is None:
             raise ValueError(f"在步长 {step} s 下未找到碰撞区间，最大搜索时间 {max_time} s 不足")
-
         left_time, right_time = new_left, new_right
 
     return {
@@ -261,22 +229,22 @@ def layered_refine_collision_interval(
     }
 
 
-def bisect_collision_time(left_time, right_time, cache=None, candidate_window=None, tolerance=None):
+def bisect_collision_time(left_time, right_time, cache=None, tolerance=None):
     """二分法求碰撞临界时刻。"""
     if cache is None:
         cache = _build_cache()
     if tolerance is None:
         tolerance = dragon_data.QUESTION2_TIME_TOL
 
-    left_state = evaluate_collision_state(left_time, cache=cache, candidate_window=candidate_window)
-    right_state = evaluate_collision_state(right_time, cache=cache, candidate_window=candidate_window)
+    left_state = evaluate_collision_state(left_time, cache=cache)
+    right_state = evaluate_collision_state(right_time, cache=cache)
     if not (left_state["global_gap"] > 0.0 and right_state["global_gap"] <= 0.0):
         raise ValueError("二分区间不满足左安全右碰撞")
 
     iterations = []
     while right_time - left_time > tolerance:
         middle_time = 0.5 * (left_time + right_time)
-        middle_state = evaluate_collision_state(middle_time, cache=cache, candidate_window=candidate_window)
+        middle_state = evaluate_collision_state(middle_time, cache=cache)
         iterations.append(
             {
                 "left_time": left_time,
@@ -305,7 +273,6 @@ def bisect_collision_time(left_time, right_time, cache=None, candidate_window=No
 def solve_question2(
     scan_steps=None,
     max_time=None,
-    candidate_window=None,
     tolerance=None,
 ):
     """求解第二问。"""
@@ -314,13 +281,11 @@ def solve_question2(
         cache=cache,
         scan_steps=scan_steps,
         max_time=max_time,
-        candidate_window=candidate_window,
     )
     bisection_result = bisect_collision_time(
         left_time=refined_interval["left_time"],
         right_time=refined_interval["right_time"],
         cache=cache,
-        candidate_window=candidate_window,
         tolerance=tolerance,
     )
 
@@ -371,8 +336,9 @@ def save_question2_outputs(result):
     utils.save_question2_local_geometry(
         rectangles=collision_state["rectangles"],
         focus_pair=collision_state["best_pair"],
-        layer_indices=(collision_state["inner_indices"], collision_state["outer_indices"]),
+        layer_indices=([0], collision_state["candidate_indices"]),
         output_path=local_figure,
+        theta=collision_state["state"]["theta"],
     )
     inner_index, outer_index = collision_state["best_pair"]
     utils.save_question2_sat_projection(

@@ -28,8 +28,8 @@ QUESTION1_KEY_TIMES = np.array([0, 60, 120, 180, 240, 300], dtype=float)
 QUESTION2_SCAN_STEPS = (1.0, 0.1, 0.01)
 QUESTION2_TIME_TOL = 1e-6
 QUESTION2_MAX_TIME = 600.0
-QUESTION2_CANDIDATE_WINDOW = 2
 QUESTION2_KEY_POINT_INDICES = [0, 1, 51, 101, 151, 201, 223]
+QUESTION2_CHINESE_FONTS = ["Microsoft YaHei", "SimHei", "SimSun", "Noto Sans CJK SC", "Arial Unicode MS"]
 
 
 def get_handle_distances():
@@ -84,3 +84,19 @@ def get_time_labels(time_points):
         else:
             labels.append(f"{value:.2f} s")
     return labels
+
+
+def get_question2_plot_labels():
+    """返回第二问图像文字配置。"""
+    return {
+        "gap_title": "第二问碰撞间隙变化曲线",
+        "gap_xlabel": "时间 (s)",
+        "gap_ylabel": "G(t)",
+        "safe_text": "安全侧",
+        "collision_text": "碰撞侧",
+        "local_title": "第二问临界时刻局部几何示意图",
+        "sat_left_title": "SAT 分离轴示意图",
+        "sat_right_title": "SAT 投影区间示意图",
+        "x_label": "横坐标 x (m)",
+        "y_label": "纵坐标 y (m)",
+    }

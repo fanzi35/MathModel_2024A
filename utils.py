@@ -21,6 +21,17 @@ def ensure_dir(path):
     Path(path).mkdir(parents=True, exist_ok=True)
 
 
+def get_question2_plot_labels():
+    """返回第二问图像标签。"""
+    return dragon_data.get_question2_plot_labels()
+
+
+def configure_chinese_plotting():
+    """设置中文绘图字体。"""
+    plt.rcParams["font.sans-serif"] = dragon_data.QUESTION2_CHINESE_FONTS
+    plt.rcParams["axes.unicode_minus"] = False
+
+
 def spiral_coefficient(pitch):
     """根据螺距返回阿基米德螺线系数。"""
     return pitch / (2.0 * np.pi)
@@ -407,9 +418,51 @@ def plot_rectangle(ax, rectangle, color, label=None, linewidth=1.5, alpha=0.2):
     ax.plot(polygon[:, 0], polygon[:, 1], color=color, linewidth=linewidth, label=label)
 
 
+def build_local_geometry_display_indices(primary_indices, secondary_indices, focus_pair):
+    """为局部几何图扩展出连续显示的板凳索引。"""
+    display_set = set(primary_indices) | set(secondary_indices) | set(focus_pair)
+    if not display_set:
+        return []
+    start_index = min(display_set)
+    end_index = max(display_set)
+    return list(range(start_index, end_index + 1))
+
+
+def build_local_geometry_style_groups(display_indices, focus_pair):
+    """返回局部几何图中的普通板凳与高亮板凳分组。"""
+    focus_inner, focus_outer = focus_pair
+    base_indices = [index for index in display_indices if index not in (focus_inner, focus_outer)]
+    return base_indices, focus_inner, focus_outer
+
+
+def build_local_geometry_handle_chain(rectangles, display_indices):
+    """按连续板凳链提取把手点序列。"""
+    if not display_indices:
+        return np.zeros((0, 2), dtype=float)
+    bench_map = {rectangle["bench_index"]: rectangle for rectangle in rectangles}
+    handle_points = [bench_map[display_indices[0]]["front_point"]]
+    for bench_index in display_indices:
+        handle_points.append(bench_map[bench_index]["rear_point"])
+    return np.asarray(handle_points, dtype=float)
+
+
+def build_local_spiral_curve(theta, display_indices, pitch, point_count=400):
+    """根据显示范围生成局部阿基米德螺线。"""
+    if not display_indices:
+        return np.zeros(0), np.zeros(0), np.zeros(0)
+    start_index = min(display_indices)
+    end_index = max(display_indices) + 1
+    theta_curve = np.linspace(float(theta[start_index]), float(theta[end_index]), int(point_count))
+    radius_curve = spiral_coefficient(pitch) * theta_curve
+    x_curve, y_curve = polar_to_cartesian(radius_curve, theta_curve)
+    return theta_curve, x_curve, y_curve
+
+
 def save_question2_gap_curve(gap_history, output_path, safe_time=None, collision_time=None):
     """保存 G(t) 曲线图。"""
     ensure_dir(Path(output_path).parent)
+    configure_chinese_plotting()
+    labels = get_question2_plot_labels()
     ordered = sorted(gap_history.items())
     times = np.array([item[0] for item in ordered], dtype=float)
     gaps = np.array([item[1] for item in ordered], dtype=float)
@@ -426,7 +479,7 @@ def save_question2_gap_curve(gap_history, output_path, safe_time=None, collision
         plt.text(
             safe_time,
             y_min + 0.75 * y_span,
-            f"safe = {safe_time:.6f} s",
+            f"{labels['safe_text']} = {safe_time:.6f} s",
             rotation=90,
             color="#2ca02c",
             va="center",
@@ -439,7 +492,7 @@ def save_question2_gap_curve(gap_history, output_path, safe_time=None, collision
         plt.text(
             collision_time,
             y_min + 0.25 * y_span,
-            f"collision = {collision_time:.6f} s",
+            f"{labels['collision_text']} = {collision_time:.6f} s",
             rotation=90,
             color="#d62728",
             va="center",
@@ -447,35 +500,53 @@ def save_question2_gap_curve(gap_history, output_path, safe_time=None, collision
             fontsize=9,
             bbox={"facecolor": "white", "edgecolor": "#d62728", "alpha": 0.8},
         )
-    plt.xlabel("Time (s)")
-    plt.ylabel("G(t)")
-    plt.title("Question 2 Collision Gap History")
+    plt.xlabel(labels["gap_xlabel"])
+    plt.ylabel(labels["gap_ylabel"])
+    plt.title(labels["gap_title"])
     plt.tight_layout()
     plt.savefig(output_path, dpi=200)
     plt.close()
 
 
-def save_question2_local_geometry(rectangles, focus_pair, layer_indices, output_path):
+def save_question2_local_geometry(rectangles, focus_pair, layer_indices, output_path, theta=None):
     """保存临界时刻局部几何图。"""
     ensure_dir(Path(output_path).parent)
+    configure_chinese_plotting()
+    labels = get_question2_plot_labels()
     inner_indices, outer_indices = layer_indices
+    display_indices = build_local_geometry_display_indices(inner_indices, outer_indices, focus_pair)
+    base_indices, focus_inner, focus_outer = build_local_geometry_style_groups(display_indices, focus_pair)
     bench_map = {rectangle["bench_index"]: rectangle for rectangle in rectangles}
-    focus_inner, focus_outer = focus_pair
+    handle_points = build_local_geometry_handle_chain(rectangles, display_indices)
 
     plt.figure(figsize=(8, 8))
-    for bench_index in inner_indices:
-        rectangle = bench_map[bench_index]
-        plot_rectangle(plt.gca(), rectangle, "#1f77b4", linewidth=1.0, alpha=0.12)
-    for bench_index in outer_indices:
-        rectangle = bench_map[bench_index]
-        plot_rectangle(plt.gca(), rectangle, "#ff7f0e", linewidth=1.0, alpha=0.12)
+    ax = plt.gca()
+    if theta is not None and display_indices:
+        _, x_curve, y_curve = build_local_spiral_curve(theta, display_indices, dragon_data.QUESTION1_PITCH)
+        ax.plot(x_curve, y_curve, color="black", linestyle="--", linewidth=1.0, alpha=0.7)
 
-    plot_rectangle(plt.gca(), bench_map[focus_inner], "#d62728", label=f"Bench {focus_inner}", linewidth=2.0, alpha=0.30)
-    plot_rectangle(plt.gca(), bench_map[focus_outer], "#2ca02c", label=f"Bench {focus_outer}", linewidth=2.0, alpha=0.30)
+    for bench_index in base_indices:
+        rectangle = bench_map[bench_index]
+        plot_rectangle(ax, rectangle, "#ff7f0e", linewidth=1.0, alpha=0.12)
 
-    plt.xlabel("x (m)")
-    plt.ylabel("y (m)")
-    plt.title("Question 2 Local Geometry Near First Collision")
+    for bench_index in display_indices:
+        rectangle = bench_map[bench_index]
+        ax.plot(
+            [rectangle["front_point"][0], rectangle["rear_point"][0]],
+            [rectangle["front_point"][1], rectangle["rear_point"][1]],
+            color="black",
+            linewidth=1.2,
+        )
+
+    if handle_points.size > 0:
+        ax.scatter(handle_points[:, 0], handle_points[:, 1], color="black", s=18, zorder=5)
+
+    plot_rectangle(ax, bench_map[focus_inner], "#d62728", label=f"Bench {focus_inner}", linewidth=2.0, alpha=0.30)
+    plot_rectangle(ax, bench_map[focus_outer], "#2ca02c", label=f"Bench {focus_outer}", linewidth=2.0, alpha=0.30)
+
+    plt.xlabel(labels["x_label"])
+    plt.ylabel(labels["y_label"])
+    plt.title(labels["local_title"])
     plt.axis("equal")
     plt.legend()
     plt.tight_layout()
@@ -486,6 +557,8 @@ def save_question2_local_geometry(rectangles, focus_pair, layer_indices, output_
 def save_question2_sat_projection(rectangle_a, rectangle_b, sat_result, output_path):
     """保存 SAT 投影示意图。"""
     ensure_dir(Path(output_path).parent)
+    configure_chinese_plotting()
+    labels = get_question2_plot_labels()
     axis = normalize_vector(sat_result["axis"])
 
     fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(12, 5))
@@ -494,7 +567,7 @@ def save_question2_sat_projection(rectangle_a, rectangle_b, sat_result, output_p
     center = 0.5 * (rectangle_a["center"] + rectangle_b["center"])
     axis_scale = max(rectangle_a["length"], rectangle_b["length"])
     ax_left.arrow(center[0], center[1], axis[0] * axis_scale, axis[1] * axis_scale, width=0.02, color="black")
-    ax_left.set_title("Rectangles and SAT Axis")
+    ax_left.set_title(labels["sat_left_title"])
     ax_left.set_aspect("equal")
     ax_left.legend()
 
@@ -509,7 +582,7 @@ def save_question2_sat_projection(rectangle_a, rectangle_b, sat_result, output_p
     ax_right.plot([left_b, right_b], [0, 0], color="#2ca02c", linewidth=6)
     ax_right.set_yticks([0, 1])
     ax_right.set_yticklabels([f"Bench {rectangle_b['bench_index']}", f"Bench {rectangle_a['bench_index']}"])
-    ax_right.set_title(f"Projection Interval Gap = {sat_result['gap']:.6f}")
+    ax_right.set_title(f"{labels['sat_right_title']}\n间隙 = {sat_result['gap']:.6f}")
     ax_right.grid(True, axis="x", linestyle="--", alpha=0.4)
 
     fig.tight_layout()
