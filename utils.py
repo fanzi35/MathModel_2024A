@@ -99,6 +99,223 @@ def speed_from_theta(theta, theta_dot, b):
     return np.abs(b * np.sqrt(1.0 + theta ** 2) * theta_dot)
 
 
+def spiral_tangent(theta, b):
+    """返回阿基米德螺线对参数 theta 的导数向量。"""
+    return np.array(
+        [
+            b * (np.cos(theta) - theta * np.sin(theta)),
+            b * (np.sin(theta) + theta * np.cos(theta)),
+        ],
+        dtype=float,
+    )
+
+
+def circle_tangent(center, point, orientation):
+    """返回圆上某点沿给定方向的单位切向量。"""
+    radial = normalize_vector(np.asarray(point, dtype=float) - np.asarray(center, dtype=float))
+    return orientation * perpendicular_vector(radial)
+
+
+def choose_circle_orientation(center, point, desired_tangent):
+    """根据期望切向选择圆弧正反方向。"""
+    tangent_ccw = circle_tangent(center, point, 1.0)
+    if np.dot(tangent_ccw, desired_tangent) >= 0.0:
+        return 1.0
+    return -1.0
+
+
+def oriented_arc_angle(start_vector, end_vector, orientation):
+    """计算给定方向下的圆弧圆心角。"""
+    start_angle = np.arctan2(start_vector[1], start_vector[0])
+    end_angle = np.arctan2(end_vector[1], end_vector[0])
+    if orientation > 0:
+        delta = end_angle - start_angle
+    else:
+        delta = start_angle - end_angle
+    while delta < 0.0:
+        delta += 2.0 * np.pi
+    return float(delta)
+
+
+def _solve_positive_quadratic_roots(a, b, c):
+    """返回二次方程的所有正实根。"""
+    if abs(a) < 1e-12:
+        if abs(b) < 1e-12:
+            return []
+        root = -c / b
+        return [float(root)] if root > 0 else []
+    delta = b ** 2 - 4.0 * a * c
+    if delta < 0:
+        return []
+    sqrt_delta = np.sqrt(max(delta, 0.0))
+    roots = [(-b + sqrt_delta) / (2.0 * a), (-b - sqrt_delta) / (2.0 * a)]
+    return sorted(float(root) for root in roots if root > 0)
+
+
+def _arc_points_within_turn_circle(center, radius, start_point, end_point, orientation, turn_radius):
+    """采样检查圆弧是否位于调头圆内。"""
+    start_vector = np.asarray(start_point, dtype=float) - np.asarray(center, dtype=float)
+    end_vector = np.asarray(end_point, dtype=float) - np.asarray(center, dtype=float)
+    total_angle = oriented_arc_angle(start_vector, end_vector, orientation)
+    start_angle = np.arctan2(start_vector[1], start_vector[0])
+    sample_values = np.linspace(0.0, total_angle, 80)
+    angles = start_angle + orientation * sample_values
+    x = center[0] + radius * np.cos(angles)
+    y = center[1] + radius * np.sin(angles)
+    radius_values = np.sqrt(x ** 2 + y ** 2)
+    return bool(np.all(radius_values <= turn_radius + 1e-7))
+
+
+def solve_question4_turn_geometry(pitch, turn_radius, radius_ratio=2.0):
+    """求解第四问调头几何。"""
+    b = spiral_coefficient(pitch)
+    theta_a = turn_radius / b
+    A = np.array(polar_to_cartesian(turn_radius, theta_a), dtype=float)
+    B = -A
+
+    incoming_tangent = -normalize_vector(spiral_tangent(theta_a, b))
+    outgoing_tangent = normalize_vector(-spiral_tangent(theta_a, b))
+    incoming_normal = perpendicular_vector(incoming_tangent)
+    outgoing_normal = perpendicular_vector(outgoing_tangent)
+
+    best_geometry = None
+    u = A - B
+    for sigma_1 in (1.0, -1.0):
+        for sigma_2 in (1.0, -1.0):
+            v = radius_ratio * sigma_1 * incoming_normal - sigma_2 * outgoing_normal
+            roots = _solve_positive_quadratic_roots(
+                np.dot(v, v) - (radius_ratio + 1.0) ** 2,
+                2.0 * np.dot(u, v),
+                np.dot(u, u),
+            )
+            for radius_2 in roots:
+                radius_1 = radius_ratio * radius_2
+                C1 = A + radius_1 * sigma_1 * incoming_normal
+                C2 = B + radius_2 * sigma_2 * outgoing_normal
+                D = C1 + (radius_1 / (radius_1 + radius_2)) * (C2 - C1)
+
+                eps1 = choose_circle_orientation(C1, A, incoming_tangent)
+                eps2 = choose_circle_orientation(C2, B, outgoing_tangent)
+                tangent_d1 = circle_tangent(C1, D, eps1)
+                tangent_d2 = circle_tangent(C2, D, eps2)
+                if np.dot(tangent_d1, tangent_d2) < 0.99:
+                    continue
+
+                phi1 = oriented_arc_angle(A - C1, D - C1, eps1)
+                phi2 = oriented_arc_angle(D - C2, B - C2, eps2)
+                if phi1 <= 0.0 or phi2 <= 0.0:
+                    continue
+                if not _arc_points_within_turn_circle(C1, radius_1, A, D, eps1, turn_radius):
+                    continue
+                if not _arc_points_within_turn_circle(C2, radius_2, D, B, eps2, turn_radius):
+                    continue
+
+                length_1 = radius_1 * phi1
+                length_2 = radius_2 * phi2
+                total_length = length_1 + length_2
+                candidate = {
+                    "b": b,
+                    "theta_A": float(theta_a),
+                    "A": A,
+                    "B": B,
+                    "C1": C1,
+                    "C2": C2,
+                    "D": D,
+                    "R1": float(radius_1),
+                    "R2": float(radius_2),
+                    "phi1": float(phi1),
+                    "phi2": float(phi2),
+                    "L1": float(length_1),
+                    "L2": float(length_2),
+                    "eps1": float(eps1),
+                    "eps2": float(eps2),
+                    "incoming_tangent": incoming_tangent,
+                    "outgoing_tangent": outgoing_tangent,
+                }
+                if best_geometry is None or total_length < best_geometry["total_length"]:
+                    candidate["total_length"] = float(total_length)
+                    best_geometry = candidate
+
+    if best_geometry is None:
+        raise ValueError("未找到第四问调头几何的可行解")
+
+    best_geometry["spiral_arc_at_A"] = float(spiral_arc_length(best_geometry["theta_A"], best_geometry["b"]))
+    return best_geometry
+
+
+def solve_question4_spiral_theta_from_s(s_value, geometry, outgoing=False):
+    """由第四问全局弧长求盘入或盘出螺线参数。"""
+    target_arc = geometry["spiral_arc_at_A"] - s_value if not outgoing else geometry["spiral_arc_at_A"] + s_value
+    upper_bound = max(geometry["theta_A"] + abs(s_value) / geometry["b"] + 2.0, geometry["theta_A"] + 1.0)
+    return solve_theta_from_arc_length(target_arc, geometry["b"], upper_bound=upper_bound)
+
+
+def question4_path_position(s_value, geometry):
+    """返回第四问全局路径上弧长 s 对应的位置。"""
+    s_value = float(s_value)
+    if s_value < 0.0:
+        theta = solve_question4_spiral_theta_from_s(s_value, geometry, outgoing=False)
+        radius = geometry["b"] * theta
+        return np.array(polar_to_cartesian(radius, theta), dtype=float)
+    if s_value <= geometry["L1"]:
+        angle_start = np.arctan2(geometry["A"][1] - geometry["C1"][1], geometry["A"][0] - geometry["C1"][0])
+        angle = angle_start + geometry["eps1"] * (s_value / geometry["R1"])
+        return np.array(
+            [geometry["C1"][0] + geometry["R1"] * np.cos(angle), geometry["C1"][1] + geometry["R1"] * np.sin(angle)],
+            dtype=float,
+        )
+    if s_value <= geometry["L1"] + geometry["L2"]:
+        angle_start = np.arctan2(geometry["D"][1] - geometry["C2"][1], geometry["D"][0] - geometry["C2"][0])
+        angle = angle_start + geometry["eps2"] * ((s_value - geometry["L1"]) / geometry["R2"])
+        return np.array(
+            [geometry["C2"][0] + geometry["R2"] * np.cos(angle), geometry["C2"][1] + geometry["R2"] * np.sin(angle)],
+            dtype=float,
+        )
+    theta = solve_question4_spiral_theta_from_s(s_value - geometry["L1"] - geometry["L2"], geometry, outgoing=True)
+    radius = geometry["b"] * theta
+    return -np.array(polar_to_cartesian(radius, theta), dtype=float)
+
+
+def question4_path_tangent(s_value, geometry):
+    """返回第四问全局路径上弧长 s 对应的单位切向量。"""
+    s_value = float(s_value)
+    if s_value < 0.0:
+        theta = solve_question4_spiral_theta_from_s(s_value, geometry, outgoing=False)
+        return -normalize_vector(spiral_tangent(theta, geometry["b"]))
+    if s_value <= geometry["L1"]:
+        point = question4_path_position(s_value, geometry)
+        return circle_tangent(geometry["C1"], point, geometry["eps1"])
+    if s_value <= geometry["L1"] + geometry["L2"]:
+        point = question4_path_position(s_value, geometry)
+        return circle_tangent(geometry["C2"], point, geometry["eps2"])
+    theta = solve_question4_spiral_theta_from_s(s_value - geometry["L1"] - geometry["L2"], geometry, outgoing=True)
+    return normalize_vector(-spiral_tangent(theta, geometry["b"]))
+
+
+def solve_trailing_path_parameter(s_prev, distance, geometry, tol=1e-10, max_iter=100):
+    """沿第四问全局路径递推求解后一个把手的弧长参数。"""
+    high = float(s_prev)
+    reference_point = question4_path_position(high, geometry)
+    low = high - max(distance * 1.2, 1e-3)
+
+    def gap(s_value):
+        delta = question4_path_position(s_value, geometry) - reference_point
+        return float(np.dot(delta, delta) - distance ** 2)
+
+    while gap(low) < 0.0:
+        low -= max(distance, 1e-3)
+
+    for _ in range(max_iter):
+        mid = 0.5 * (low + high)
+        if gap(mid) < 0.0:
+            high = mid
+        else:
+            low = mid
+        if high - low < tol:
+            break
+    return 0.5 * (low + high)
+
+
 def build_position_dataframe(position, time_points):
     """将第一问位置结果整理为表格。"""
     columns = dragon_data.get_time_labels(time_points)
@@ -161,6 +378,21 @@ def build_result2_dataframe(position_column, speed_column):
 def build_question2_summary_dataframe(result2_df):
     """提取第二问要求的关键节点表。"""
     return result2_df.loc[dragon_data.get_question2_summary_labels()]
+
+
+def build_question4_summary_tables(position_df, speed_df):
+    """整理第四问论文可用摘要表。"""
+    key_columns = [
+        column for column in dragon_data.get_time_labels(dragon_data.QUESTION4_KEY_TIMES)
+        if column in position_df.columns
+    ]
+    point_names = dragon_data.get_point_names()
+    position_rows = []
+    for point_index in dragon_data.QUESTION4_KEY_POINT_INDICES:
+        position_rows.append(f"{point_names[point_index]}x (m)")
+        position_rows.append(f"{point_names[point_index]}y (m)")
+    speed_rows = [f"{point_names[point_index]} (m/s)" for point_index in dragon_data.QUESTION4_KEY_POINT_INDICES]
+    return position_df.loc[position_rows, key_columns], speed_df.loc[speed_rows, key_columns]
 
 
 def save_dataframe_exports(dataframe, csv_path, markdown_path):
@@ -275,6 +507,17 @@ def write_result2_excel(result2_df, output_path):
     sheet_targets = load_sheet_targets(template_path)
     replacements = {
         sheet_targets["Sheet1"]: result2_df,
+    }
+    _write_template_excel(output_path, template_path, replacements)
+
+
+def write_result4_excel(position_df, speed_df, output_path):
+    """按模板写出第四问 Excel。"""
+    template_path = dragon_data.REFERENCE_DIR / "result4.xlsx"
+    sheet_targets = load_sheet_targets(template_path)
+    replacements = {
+        sheet_targets["位置"]: position_df,
+        sheet_targets["速度"]: speed_df,
     }
     _write_template_excel(output_path, template_path, replacements)
 
@@ -588,3 +831,72 @@ def save_question2_sat_projection(rectangle_a, rectangle_b, sat_result, output_p
     fig.tight_layout()
     fig.savefig(output_path, dpi=200)
     plt.close(fig)
+
+
+def _find_question4_snapshot_index(s_values, geometry):
+    """选择一个同时包含盘入、调头和盘出的时刻。"""
+    for time_index in range(s_values.shape[1]):
+        column = s_values[:, time_index]
+        has_in = bool(np.any(column < 0.0))
+        has_turn = bool(np.any((column >= 0.0) & (column <= geometry["L1"] + geometry["L2"])))
+        has_out = bool(np.any(column > geometry["L1"] + geometry["L2"]))
+        if has_in and has_turn and has_out:
+            return time_index
+    return s_values.shape[1] // 2
+
+
+def save_question4_figures(geometry, s_values, position, speed, time_points, output_dir):
+    """保存第四问图像。"""
+    ensure_dir(output_dir)
+    configure_chinese_plotting()
+    labels = dragon_data.get_question4_plot_labels()
+
+    path_figure = Path(output_dir) / "question4_path.png"
+    state_figure = Path(output_dir) / "question4_state.png"
+    speed_figure = Path(output_dir) / "question4_speed.png"
+
+    path_s = np.linspace(-100.0, geometry["L1"] + geometry["L2"] + 100.0, 1200)
+    path_points = np.array([question4_path_position(s_value, geometry) for s_value in path_s])
+
+    plt.figure(figsize=(8, 8))
+    plt.plot(path_points[:, 0], path_points[:, 1], color="#1f77b4", linewidth=1.5)
+    plt.scatter(
+        [geometry["A"][0], geometry["D"][0], geometry["B"][0]],
+        [geometry["A"][1], geometry["D"][1], geometry["B"][1]],
+        color=["#d62728", "#2ca02c", "#9467bd"],
+        s=30,
+    )
+    plt.xlabel(labels["x_label"])
+    plt.ylabel(labels["y_label"])
+    plt.title(labels["path_title"])
+    plt.axis("equal")
+    plt.tight_layout()
+    plt.savefig(path_figure, dpi=200)
+    plt.close()
+
+    snapshot_index = _find_question4_snapshot_index(s_values, geometry)
+    plt.figure(figsize=(8, 8))
+    plt.plot(path_points[:, 0], path_points[:, 1], color="black", linestyle="--", linewidth=1.0, alpha=0.7)
+    plt.plot(position[:, 0, snapshot_index], position[:, 1, snapshot_index], color="#d62728", linewidth=1.0)
+    plt.scatter(position[:, 0, snapshot_index], position[:, 1, snapshot_index], color="black", s=12)
+    plt.xlabel(labels["x_label"])
+    plt.ylabel(labels["y_label"])
+    plt.title(f"{labels['state_title']} (t={time_points[snapshot_index]:.0f} s)")
+    plt.axis("equal")
+    plt.tight_layout()
+    plt.savefig(state_figure, dpi=200)
+    plt.close()
+
+    plt.figure(figsize=(10, 6))
+    representative_indices = dragon_data.QUESTION4_KEY_POINT_INDICES
+    for point_index in representative_indices:
+        plt.plot(time_points, speed[point_index], label=dragon_data.get_point_names()[point_index])
+    plt.xlabel(labels["time_label"])
+    plt.ylabel(labels["speed_label"])
+    plt.title(labels["speed_title"])
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(speed_figure, dpi=200)
+    plt.close()
+
+    return path_figure, state_figure, speed_figure

@@ -31,6 +31,14 @@ QUESTION2_MAX_TIME = 600.0
 QUESTION2_KEY_POINT_INDICES = [0, 1, 51, 101, 151, 201, 223]
 QUESTION2_CHINESE_FONTS = ["Microsoft YaHei", "SimHei", "SimSun", "Noto Sans CJK SC", "Arial Unicode MS"]
 
+QUESTION4_PITCH = 1.7
+QUESTION4_TURN_RADIUS = 4.5
+QUESTION4_RADIUS_RATIO = 2.0
+QUESTION4_HEAD_SPEED = 1.0
+QUESTION4_TIME_POINTS = np.arange(-100.0, 101.0, 1.0)
+QUESTION4_KEY_TIMES = np.array([-100, -50, 0, 50, 100], dtype=float)
+QUESTION4_KEY_POINT_INDICES = [0, 1, 51, 101, 151, 201, 223]
+
 
 def get_handle_distances():
     """返回相邻把手中心的固定距离序列。"""
@@ -75,6 +83,12 @@ def get_question2_summary_labels():
     return [names[index] for index in QUESTION2_KEY_POINT_INDICES]
 
 
+def get_question4_summary_labels():
+    """返回第四问摘要表的点名称。"""
+    names = get_point_names()
+    return [names[index] for index in QUESTION4_KEY_POINT_INDICES]
+
+
 def get_time_labels(time_points):
     """返回题目要求的时间列标签。"""
     labels = []
@@ -99,4 +113,17 @@ def get_question2_plot_labels():
         "sat_right_title": "SAT 投影区间示意图",
         "x_label": "横坐标 x (m)",
         "y_label": "纵坐标 y (m)",
+    }
+
+
+def get_question4_plot_labels():
+    """返回第四问图像文字配置。"""
+    return {
+        "path_title": "第四问调头复合路径示意图",
+        "state_title": "第四问板凳龙状态示意图",
+        "speed_title": "第四问代表节点速度曲线",
+        "x_label": "横坐标 x (m)",
+        "y_label": "纵坐标 y (m)",
+        "time_label": "时间 (s)",
+        "speed_label": "速度 (m/s)",
     }
