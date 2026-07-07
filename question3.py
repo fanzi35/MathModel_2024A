@@ -37,7 +37,7 @@ TURNING_RADIUS = 4.5
 INITIAL_THETA = float(dragon_data.QUESTION1_INITIAL_THETA)  # 32π，即第 16 圈
 
 # 螺距粗扫描范围，单位 m。第三问结果在 0.45m 附近。
-PITCH_SCAN_MIN = 0.35
+PITCH_SCAN_MIN = 0.30##以板凳宽度作为下界
 PITCH_SCAN_MAX = 0.60
 PITCH_SCAN_STEP = 0.01
 PITCH_TOL = 1e-6
