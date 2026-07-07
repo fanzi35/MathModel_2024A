@@ -1,0 +1,3 @@
+﻿pitch_m,pitch_cm,min_gap_m,min_gap_radius_m,best_pair_i,best_pair_j,pair_count,safe,stage
+0.3,30.0,-0.1500981842581965,4.664,0,19,35,False,fixed_lower_bound_30cm
+0.55,55.00000000000001,0.09944779611956328,4.511952380952381,0,19,36,True,right_bound_search
