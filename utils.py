@@ -884,6 +884,10 @@ def save_question4_turn_schematic(geometry, output_path):
         )
         return start_angle + orientation * np.linspace(0.0, total_angle, count)
 
+    def shortest_arc_angles(start_angle, end_angle, count=100):
+        delta = (float(end_angle) - float(start_angle) + np.pi) % (2.0 * np.pi) - np.pi
+        return float(start_angle) + np.linspace(0.0, delta, count)
+
     inner_span = 2.4 * np.pi
     outer_turns = 2.0
     theta_in_main = np.linspace(theta_a + inner_span, theta_a, 360)
@@ -923,6 +927,38 @@ def save_question4_turn_schematic(geometry, output_path):
     ax.plot([C[0], O1[0]], [C[1], O1[1]], color=radius_color_1, linewidth=1.6)
     ax.plot([B[0], O2[0]], [B[1], O2[1]], color=radius_color_2, linewidth=1.6)
     ax.plot([C[0], O2[0]], [C[1], O2[1]], color=radius_color_2, linewidth=1.6)
+
+    centerline_color = "#4a4a4a"
+    ax.plot(
+        [A[0], O[0], B[0]],
+        [A[1], O[1], B[1]],
+        color=centerline_color,
+        linewidth=1.4,
+        linestyle="--",
+        zorder=1,
+    )
+
+    alpha_radius = max(0.28, 0.11 * turn_radius)
+    alpha_angles = shortest_arc_angles(polar_angle(O1, C), polar_angle(A, C), 100)
+    ax.plot(
+        C[0] + alpha_radius * np.cos(alpha_angles),
+        C[1] + alpha_radius * np.sin(alpha_angles),
+        color="black",
+        linewidth=1.2,
+        zorder=4,
+    )
+    alpha_mid = alpha_angles[len(alpha_angles) // 2]
+    alpha_label_radius = alpha_radius + 0.16
+    ax.text(
+        C[0] + alpha_label_radius * np.cos(alpha_mid),
+        C[1] + alpha_label_radius * np.sin(alpha_mid),
+        r"$\alpha$",
+        fontsize=12,
+        color="black",
+        ha="center",
+        va="center",
+        zorder=5,
+    )
 
     point_style = {
         "A": (A, (0.10, -0.12)),
