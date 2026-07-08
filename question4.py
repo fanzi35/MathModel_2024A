@@ -85,6 +85,10 @@ def save_question4_outputs(result):
     utils.save_dataframe_exports(result["speed_df"], speed_csv, speed_md)
     utils.save_dataframe_exports(result["summary_position_df"], summary_position_csv, summary_position_md)
     utils.save_dataframe_exports(result["summary_speed_df"], summary_speed_csv, summary_speed_md)
+    schematic_path = utils.save_question4_turn_schematic(
+        geometry=result["geometry"],
+        output_path=dragon_data.OUTPUT_FIGURES_DIR / "question4_turn_schematic.png",
+    )
     figure_paths = utils.save_question4_figures(
         geometry=result["geometry"],
         s_values=result["s"],
@@ -100,7 +104,8 @@ def save_question4_outputs(result):
         "speed_csv": speed_csv,
         "summary_position_csv": summary_position_csv,
         "summary_speed_csv": summary_speed_csv,
-        "figures": figure_paths,
+        "schematic": schematic_path,
+        "figures": (schematic_path,) + tuple(figure_paths),
     }
 
 

@@ -851,6 +851,108 @@ def _find_question4_snapshot_index(s_values, geometry):
     return s_values.shape[1] // 2
 
 
+def save_question4_turn_schematic(geometry, output_path):
+    """保存第四问调头路径论文示意图。"""
+    output_path = Path(output_path)
+    ensure_dir(output_path.parent)
+    configure_chinese_plotting()
+
+    A = np.asarray(geometry["A"], dtype=float)
+    B = np.asarray(geometry["B"], dtype=float)
+    C = np.asarray(geometry["D"], dtype=float)
+    O1 = np.asarray(geometry["C1"], dtype=float)
+    O2 = np.asarray(geometry["C2"], dtype=float)
+    O = np.zeros(2, dtype=float)
+    turn_radius = np.linalg.norm(A)
+    b = float(geometry["b"])
+    theta_a = float(geometry["theta_A"])
+
+    def spiral_point(theta_value):
+        radius = b * theta_value
+        return np.array(polar_to_cartesian(radius, theta_value), dtype=float)
+
+    def polar_angle(point, center):
+        delta = np.asarray(point, dtype=float) - np.asarray(center, dtype=float)
+        return np.arctan2(delta[1], delta[0])
+
+    def oriented_angles(start_point, end_point, center, orientation, count=240):
+        start_angle = polar_angle(start_point, center)
+        total_angle = oriented_arc_angle(
+            np.asarray(start_point, dtype=float) - np.asarray(center, dtype=float),
+            np.asarray(end_point, dtype=float) - np.asarray(center, dtype=float),
+            orientation,
+        )
+        return start_angle + orientation * np.linspace(0.0, total_angle, count)
+
+    inner_span = 2.4 * np.pi
+    outer_turns = 2.0
+    theta_in_main = np.linspace(theta_a + inner_span, theta_a, 360)
+    in_main = np.array([spiral_point(theta_value) for theta_value in theta_in_main])
+    theta_out_main = np.linspace(theta_a, theta_a + inner_span, 360)
+    out_main = -np.array([spiral_point(theta_value) for theta_value in theta_out_main])
+
+    theta_in_outer = np.linspace(theta_a + inner_span, theta_a + inner_span + outer_turns * 2.0 * np.pi, 320)
+    in_outer = np.array([spiral_point(theta_value) for theta_value in theta_in_outer])
+    theta_out_outer = np.linspace(theta_a + inner_span, theta_a + inner_span + outer_turns * 2.0 * np.pi, 320)
+    out_outer = -np.array([spiral_point(theta_value) for theta_value in theta_out_outer])
+
+    arc1_angles = oriented_angles(A, C, O1, geometry["eps1"])
+    arc1_points = np.column_stack(
+        [O1[0] + geometry["R1"] * np.cos(arc1_angles), O1[1] + geometry["R1"] * np.sin(arc1_angles)]
+    )
+    arc2_angles = oriented_angles(C, B, O2, geometry["eps2"])
+    arc2_points = np.column_stack(
+        [O2[0] + geometry["R2"] * np.cos(arc2_angles), O2[1] + geometry["R2"] * np.sin(arc2_angles)]
+    )
+
+    boundary_angles = np.linspace(0.0, 2.0 * np.pi, 500)
+    boundary = np.column_stack([turn_radius * np.cos(boundary_angles), turn_radius * np.sin(boundary_angles)])
+
+    fig, ax = plt.subplots(figsize=(8.2, 8.2))
+    ax.plot(in_outer[:, 0], in_outer[:, 1], color="#4c72b0", linestyle="--", linewidth=1.0, alpha=0.8)
+    ax.plot(out_outer[:, 0], out_outer[:, 1], color="#4c72b0", linestyle="--", linewidth=1.0, alpha=0.8)
+    ax.plot(in_main[:, 0], in_main[:, 1], color="#4c72b0", linewidth=2.0)
+    ax.plot(out_main[:, 0], out_main[:, 1], color="#4c72b0", linewidth=2.0)
+    ax.plot(boundary[:, 0], boundary[:, 1], color="#dd8452", linewidth=2.0)
+    ax.plot(arc1_points[:, 0], arc1_points[:, 1], color="#55a868", linewidth=2.4)
+    ax.plot(arc2_points[:, 0], arc2_points[:, 1], color="#55a868", linewidth=2.4)
+
+    radius_color_1 = "#c44e52"
+    radius_color_2 = "#8172b3"
+    ax.plot([A[0], O1[0]], [A[1], O1[1]], color=radius_color_1, linewidth=1.6)
+    ax.plot([C[0], O1[0]], [C[1], O1[1]], color=radius_color_1, linewidth=1.6)
+    ax.plot([B[0], O2[0]], [B[1], O2[1]], color=radius_color_2, linewidth=1.6)
+    ax.plot([C[0], O2[0]], [C[1], O2[1]], color=radius_color_2, linewidth=1.6)
+
+    point_style = {
+        "A": (A, (0.10, -0.12)),
+        "B": (B, (0.10, -0.12)),
+        "C": (C, (0.10, 0.10)),
+        "O1": (O1, (0.10, 0.10)),
+        "O2": (O2, (0.10, -0.15)),
+        "O": (O, (0.10, 0.10)),
+    }
+    for label, (point, offset) in point_style.items():
+        ax.scatter(point[0], point[1], color="black", s=22, zorder=4)
+        ax.text(point[0] + offset[0], point[1] + offset[1], label, fontsize=11, color="black")
+
+    ax.set_aspect("equal", adjustable="box")
+    ax.axis("off")
+
+    all_points = np.vstack([in_outer, out_outer, boundary, arc1_points, arc2_points, A, B, C, O1, O2, O])
+    x_min, y_min = np.min(all_points, axis=0)
+    x_max, y_max = np.max(all_points, axis=0)
+    x_pad = 0.08 * (x_max - x_min)
+    y_pad = 0.08 * (y_max - y_min)
+    ax.set_xlim(x_min - x_pad, x_max + x_pad)
+    ax.set_ylim(y_min - y_pad, y_max + y_pad)
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
+
+
 def save_question4_figures(geometry, s_values, position, speed, time_points, output_dir):
     """保存第四问图像。"""
     ensure_dir(output_dir)
