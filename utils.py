@@ -441,8 +441,14 @@ def create_sheet_data(dataframe):
         for column_index, value in enumerate(values, start=2):
             if pd.isna(value):
                 continue
-            cell = ET.SubElement(row, f"{{{SHEET_NS}}}c", {"r": f"{excel_column_name(column_index)}{row_index}"})
-            ET.SubElement(cell, f"{{{SHEET_NS}}}v").text = f"{float(value):.6f}"
+            cell_ref = f"{excel_column_name(column_index)}{row_index}"
+            if isinstance(value, (int, float, np.integer, np.floating)) and not isinstance(value, bool):
+                cell = ET.SubElement(row, f"{{{SHEET_NS}}}c", {"r": cell_ref})
+                ET.SubElement(cell, f"{{{SHEET_NS}}}v").text = f"{float(value):.6f}"
+            else:
+                cell = ET.SubElement(row, f"{{{SHEET_NS}}}c", {"r": cell_ref, "t": "inlineStr"})
+                text_node = ET.SubElement(ET.SubElement(cell, f"{{{SHEET_NS}}}is"), f"{{{SHEET_NS}}}t")
+                text_node.text = str(value)
 
     return sheet_data
 
@@ -900,3 +906,238 @@ def save_question4_figures(geometry, s_values, position, speed, time_points, out
     plt.close()
 
     return path_figure, state_figure, speed_figure
+
+
+def get_question5_plot_labels():
+    """返回第五问图像文字配置。"""
+    if hasattr(dragon_data, "get_question5_plot_labels"):
+        return dragon_data.get_question5_plot_labels()
+    return {
+        "speed_curve_title": "第五问代表节点速度曲线",
+        "envelope_title": "第五问全体把手最大速度包络",
+        "state_title": "第五问最大速度发生时刻状态图",
+        "scale_title": "第五问速度缩放关系示意图",
+        "x_label": "横坐标 x (m)",
+        "y_label": "纵坐标 y (m)",
+        "time_label": "时间 (s)",
+        "speed_label": "速度 (m/s)",
+        "head_speed_label": "龙头速度 (m/s)",
+        "scaled_speed_label": "把手速度 (m/s)",
+    }
+
+
+def build_question5_key_speed_table(speed, time_points, point_indices=None):
+    """构造第五问关键节点最大速度统计表。"""
+    speed = np.asarray(speed, dtype=float)
+    time_points = np.asarray(time_points, dtype=float)
+    if point_indices is None:
+        point_indices = dragon_data.QUESTION5_KEY_POINT_INDICES
+    point_names = dragon_data.get_point_names()
+
+    rows = []
+    index = []
+    for point_index in point_indices:
+        peak_index = int(np.argmax(speed[point_index]))
+        rows.append([float(speed[point_index, peak_index]), float(time_points[peak_index])])
+        index.append(point_names[point_index])
+    return pd.DataFrame(rows, index=index, columns=["最大速度 (m/s)", "出现时刻 (s)"])
+
+
+def build_question5_risk_table(point_name, point_index, risk_time, peak_speed):
+    """构造第五问最大风险把手表。"""
+    return pd.DataFrame(
+        [[point_name, int(point_index), float(risk_time), float(peak_speed)]],
+        index=["最大风险把手"],
+        columns=["把手名称", "把手编号", "发生时刻 (s)", "速度峰值 (m/s)"],
+    )
+
+
+def build_question5_conclusion_table(max_amplification, vmax):
+    """构造第五问最终结论表。"""
+    return pd.DataFrame(
+        {"数值": [float(max_amplification), float(vmax)]},
+        index=["速度放大系数 M", "龙头最大允许速度 Vmax (m/s)"],
+    )
+
+
+def _worksheet_xml_for_dataframe(dataframe):
+    """构造单个工作表 XML。"""
+    root = ET.Element(
+        f"{{{SHEET_NS}}}worksheet",
+        {"xmlns:r": REL_NS},
+    )
+    end_col = excel_column_name(dataframe.shape[1] + 1)
+    end_row = dataframe.shape[0] + 1
+    ET.SubElement(root, f"{{{SHEET_NS}}}dimension", {"ref": f"A1:{end_col}{end_row}"})
+    root.append(create_sheet_data(dataframe))
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def write_result5_excel(sheet_map, output_path):
+    """写出第五问 Excel 工作簿。"""
+    ensure_dir(Path(output_path).parent)
+    output_path = Path(output_path)
+    sheets = list(sheet_map.items())
+
+    workbook_xml = [
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">',
+        "<sheets>",
+    ]
+    workbook_rels = [
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">',
+    ]
+    content_types = [
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">',
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>',
+        '<Default Extension="xml" ContentType="application/xml"/>',
+        '<Override PartName="/xl/workbook.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>',
+        '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>',
+        '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>',
+    ]
+
+    for sheet_index, (sheet_name, _) in enumerate(sheets, start=1):
+        workbook_xml.append(f'<sheet name="{sheet_name}" sheetId="{sheet_index}" r:id="rId{sheet_index}"/>')
+        workbook_rels.append(
+            f'<Relationship Id="rId{sheet_index}" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+            f'Target="worksheets/sheet{sheet_index}.xml"/>'
+        )
+        content_types.append(
+            f'<Override PartName="/xl/worksheets/sheet{sheet_index}.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        )
+
+    workbook_xml.extend(["</sheets>", "</workbook>"])
+    workbook_rels.append("</Relationships>")
+    content_types.append("</Types>")
+
+    root_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>
+"""
+    app_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
+ xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+  <Application>OpenAI Codex</Application>
+</Properties>
+"""
+    core_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+ xmlns:dc="http://purl.org/dc/elements/1.1/"
+ xmlns:dcterms="http://purl.org/dc/terms/"
+ xmlns:dcmitype="http://purl.org/dc/dcmitype/"
+ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dc:creator>OpenAI Codex</dc:creator>
+  <cp:lastModifiedBy>OpenAI Codex</cp:lastModifiedBy>
+</cp:coreProperties>
+"""
+
+    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", "\n".join(content_types).encode("utf-8"))
+        zf.writestr("_rels/.rels", root_rels.encode("utf-8"))
+        zf.writestr("docProps/app.xml", app_xml.encode("utf-8"))
+        zf.writestr("docProps/core.xml", core_xml.encode("utf-8"))
+        zf.writestr("xl/workbook.xml", "\n".join(workbook_xml).encode("utf-8"))
+        zf.writestr("xl/_rels/workbook.xml.rels", "\n".join(workbook_rels).encode("utf-8"))
+        for sheet_index, (_, dataframe) in enumerate(sheets, start=1):
+            zf.writestr(f"xl/worksheets/sheet{sheet_index}.xml", _worksheet_xml_for_dataframe(dataframe))
+
+
+def _question5_state_snapshot_index(speed):
+    """返回第五问最大风险时刻索引。"""
+    return int(np.unravel_index(np.argmax(speed), speed.shape)[1])
+
+
+def save_question5_figures(position, speed, time_points, output_dir, speed_limit, vmax, peak_time, peak_speed):
+    """保存第五问图像。"""
+    ensure_dir(output_dir)
+    configure_chinese_plotting()
+    labels = get_question5_plot_labels()
+    point_names = dragon_data.get_point_names()
+    representative_indices = dragon_data.QUESTION5_KEY_POINT_INDICES
+
+    curve_path = Path(output_dir) / "question5_speed_curves.png"
+    envelope_path = Path(output_dir) / "question5_speed_envelope.png"
+    state_path = Path(output_dir) / "question5_max_state.png"
+    scale_path = Path(output_dir) / "question5_speed_scaling.png"
+
+    plt.figure(figsize=(10, 6))
+    for point_index in representative_indices:
+        plt.plot(time_points, speed[point_index], label=point_names[point_index])
+    plt.xlabel(labels["time_label"])
+    plt.ylabel(labels["speed_label"])
+    plt.title(labels["speed_curve_title"])
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(curve_path, dpi=200)
+    plt.close()
+
+    envelope = np.max(speed, axis=0)
+    envelope_peak_index = int(np.argmin(np.abs(np.asarray(time_points, dtype=float) - float(peak_time))))
+    plt.figure(figsize=(10, 6))
+    plt.plot(time_points, envelope, color="#d62728", linewidth=1.5)
+    plt.axhline(float(peak_speed), color="#2ca02c", linestyle="--", linewidth=1.0)
+    plt.scatter([peak_time], [peak_speed], color="black", s=24, zorder=3)
+    plt.text(
+        peak_time,
+        peak_speed,
+        f"  M={peak_speed:.6f}\n  Vmax={vmax:.6f} m/s",
+        va="bottom",
+        ha="left",
+        fontsize=9,
+        bbox={"facecolor": "white", "edgecolor": "black", "alpha": 0.8},
+    )
+    plt.xlabel(labels["time_label"])
+    plt.ylabel(labels["speed_label"])
+    plt.title(labels["envelope_title"])
+    plt.tight_layout()
+    plt.savefig(envelope_path, dpi=200)
+    plt.close()
+
+    risk_time_index = envelope_peak_index
+    plt.figure(figsize=(8, 8))
+    plt.plot(position[:, 0, risk_time_index], position[:, 1, risk_time_index], color="#d62728", linewidth=1.0)
+    plt.scatter(position[:, 0, risk_time_index], position[:, 1, risk_time_index], color="black", s=12)
+    plt.xlabel(labels["x_label"])
+    plt.ylabel(labels["y_label"])
+    plt.title(f"{labels['state_title']} (t={peak_time:.3f} s)")
+    plt.axis("equal")
+    plt.tight_layout()
+    plt.savefig(state_path, dpi=200)
+    plt.close()
+
+    scale_factors = dragon_data.QUESTION5_SCALE_FACTORS
+    head_speeds = scale_factors * speed_limit
+    selected_indices = [0, representative_indices[1], int(np.unravel_index(np.argmax(speed), speed.shape)[0])]
+    plt.figure(figsize=(10, 6))
+    for point_index in selected_indices:
+        unit_speed = speed[point_index, risk_time_index]
+        plt.plot(head_speeds, head_speeds * unit_speed, label=point_names[point_index])
+    plt.axvline(vmax, color="#d62728", linestyle="--", linewidth=1.0)
+    plt.axhline(speed_limit, color="#2ca02c", linestyle="--", linewidth=1.0)
+    plt.text(
+        vmax,
+        speed_limit,
+        f"  Vmax={vmax:.6f} m/s",
+        va="bottom",
+        ha="left",
+        fontsize=9,
+        bbox={"facecolor": "white", "edgecolor": "black", "alpha": 0.8},
+    )
+    plt.xlabel(labels["head_speed_label"])
+    plt.ylabel(labels["scaled_speed_label"])
+    plt.title(labels["scale_title"])
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(scale_path, dpi=200)
+    plt.close()
+
+    return curve_path, envelope_path, state_path, scale_path
