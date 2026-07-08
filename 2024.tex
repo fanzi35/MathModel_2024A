@@ -8,6 +8,8 @@
 \usepackage{booktabs}           % 三线表
 \usepackage{hyperref}           % 超链接（最后加载，少数例外）
 \usepackage{placeins}
+\usepackage{csvsimple}
+\usepackage{float}
 \pagestyle{plain} 
 \ctexset{
   section = {
@@ -55,11 +57,11 @@
     
 \textbf{针对问题三：} 针对问题三，本文将最小螺距求解转化为\textbf{螺距可行性搜索问题}，以龙头半径作为状态变量建立不同螺距下的舞龙空间构型模型。结合问题二中的\textbf{矩形碰撞模型与SAT检测}方法，计算盘入过程中板凳间最小间隙，并通过\textbf{多尺度半径搜索}确定临界状态。在此基础上，采用\textbf{二分法搜索最小安全螺距}，得到满足调头空间约束的最优螺距。
 
-\textbf{针对问题四：} 
+\textbf{针对问题四：} 针对问题四，本文建立了由\textbf{盘入螺线、S形相切圆弧以及盘出螺线组成的连续路径模型}，利用\textbf{弧长参数化方法}统一描述不同曲线路径。根据龙头匀速运动关系确定其路径位置，并结合板凳刚性连接约束，通过\textbf{弧长递推模型}求解全队位置；进一步利用\textbf{路径切向量}建立\textbf{速度递推模型}，得到调头过程中各节板凳的位置与速度变化。
     
-\textbf{针对问题五：} 
+\textbf{针对问题五：} 针对问题五，本文基于问题四建立的完整运动路径模型，\textbf{构建把手速度递推模型}，利用刚性连接约束建立各节把手速度与龙头速度之间的比例关系。通过\textbf{多尺度时间搜索与局部优化方法}寻找运动过程中最大把手速度，并根据速度约束条件建立最大允许龙头速度计算模型，得到满足所有把手速度不超过 2m/s 的最大行进速度。
 
-\noindent \textbf{关键词：} 等距螺线；极坐标；位置与速度迭代；
+\noindent \textbf{关键词：} “板凳龙”；等距螺线模型；极坐标；刚体碰撞模型；参数优化；速度约束；
 \end{abstract}
 
 %%%%%问题重述%%%%%
@@ -72,22 +74,22 @@
 
 \subsection{问题要求}
 
-给定一条板凳龙，其由223节板凳组成，第1节为龙头，第2节至第222节为龙身，第223节为龙尾。已知龙头板长为341cm，龙身与龙尾板长均为220cm，所有板凳的宽度均为30cm，每节板凳上有两个孔，孔径为5.5cm，孔的中心离最近的板头为27.5cm。详情示意图如图~\ref{fig-dragonhead}、图~\ref{fig-dragonbody}、图~\ref{fig-bandeng}
+给定一条板凳龙，其由223节板凳组成，第1节为龙头，第2节至第222节为龙身，第223节为龙尾。已知龙头板长为341cm，龙身与龙尾板长均为220cm，所有板凳的宽度均为30cm，每节板凳上有两个孔，孔径为5.5cm，孔的中心离最近的板头为27.5cm。详情示意图如图~\ref{fig:dragonhead}、图~\ref{fig:dragonbody}、图~\ref{fig:bandeng}
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=0.7\textwidth]{pic/dragon-head.png}
 \caption{龙头的俯视图}
-\label{fig-dragonhead}
+\label{fig:dragonhead}
 \vspace{1.0cm}
 
 \includegraphics[width=0.7\textwidth]{pic/dragon-body.png}
 \caption{龙身和龙尾的俯视图}
-\label{fig-dragonbody}
+\label{fig:dragonbody}
 \vspace{1.0cm}
 
 \includegraphics[width=0.7\textwidth]{pic/ban deng.png}
 \caption{板凳的正视图}
-\label{fig-bandeng}
+\label{fig:bandeng}
 \end{figure}
 
 为此我们需要解决以下五个问题：
@@ -103,22 +105,34 @@
 %%%%%问题分析%%%%%
 \section{问题分析}
 \subsection{问题一分析}
-针对问题一，本文首先将舞龙队盘入运动抽象为等距螺线上的参数化运动问题，通过已知螺距与初始位置建立螺线的极坐标表达形式，从而将每节板凳把手的空间位置统一表示为螺线参数$\theta$的函数。由于龙头前把手沿螺线以恒定速度 1 m/s 运动，其位置变化可转化为螺线弧长随时间线性变化的问题，因此本文通过“弧长—角度”关系实现对龙头$\theta(t)$的数值反解，从而逐时刻确定龙头在螺线上的位置。
+本文首先将舞龙队盘入运动抽象为等距螺线上的参数化运动问题，通过已知螺距与初始位置建立螺线的极坐标表达形式，从而将每节板凳把手的空间位置统一表示为螺线参数$\theta$的函数。由于龙头前把手沿螺线以恒定速度 1 m/s 运动，其位置变化可转化为螺线弧长随时间线性变化的问题，因此本文通过“弧长—角度”关系实现对龙头$\theta(t)$的数值反解，从而逐时刻确定龙头在螺线上的位置。
 
 在此基础上，考虑到各节板凳之间通过固定孔距刚性连接，整条舞龙队可视为沿螺线排列的离散约束链结构。因此，本文采用由前向后的递推方式：以龙头位置为起点，根据相邻两节之间的固定距离约束，逐节求解其对应的螺线参数$\theta$，从而依次确定所有板凳在每一时刻的位置分布。同时，在速度计算方面，通过对螺线参数随时间的变化关系进行传播，建立相邻两节之间角速度的递推关系，从而得到全队各节的速度大小。最终实现对整个舞龙队在 0–300 s 内逐秒位置与速度的数值求解。
 
 \subsection{问题二分析}
-针对问题二，本文在问题一建立的舞龙队运动模型基础上，进一步考虑板凳自身尺寸带来的空间碰撞约束。首先，根据问题一中计算得到的各把手中心位置，将每节板凳等效为具有实际长度和宽度的矩形刚体，从而建立板凳的几何表示模型。由于舞龙队沿螺线由外向内盘入，碰撞最可能发生于龙头进入已盘入区域的过程中，因此本文以龙头板凳为主要检测对象，根据龙头与后续板凳之间的螺线参数关系筛选可能发生碰撞的候选板凳，从而减少无效检测并提高计算效率。
+本文在问题一建立的舞龙队运动模型基础上，进一步考虑板凳自身尺寸带来的空间碰撞约束。首先，根据问题一中计算得到的各把手中心位置，将每节板凳等效为具有实际长度和宽度的矩形刚体，从而建立板凳的几何表示模型。由于舞龙队沿螺线由外向内盘入，碰撞最可能发生于龙头进入已盘入区域的过程中，因此本文以龙头板凳为主要检测对象，根据龙头与后续板凳之间的螺线参数关系筛选可能发生碰撞的候选板凳，从而减少无效检测并提高计算效率。
 
 在碰撞判定过程中，本文采用基于分离轴定理的矩形碰撞检测方法，计算龙头板凳与候选龙身板凳之间的最小间隙，并将该间隙作为判断舞龙队安全状态的依据。当最小间隙大于零时，认为舞龙队仍可继续盘入；当最小间隙小于等于零时，则认为板凳之间发生碰撞。在确定碰撞判据后，本文将终止时刻求解转化为时间搜索问题，通过逐层缩小时间步长确定碰撞发生的时间区间，并利用二分搜索进一步提高时间精度，最终获得舞龙队无法继续盘入的临界安全时刻，并输出该时刻各节板凳的位置与速度信息。
 
-\subsection{问题三分析}针对问题三，本文将最小螺距求解转化为螺距参数下的可行性判断问题。考虑到调头空间由半径约束确定，本文以龙头当前半径作为盘入状态变量，建立给定螺距与龙头位置下的舞龙队空间构型模型，并利用问题一中的板凳连接约束递推求解各节板凳位置。
+\subsection{问题三分析}
+本文将最小螺距求解转化为螺距参数下的可行性判断问题。考虑到调头空间由半径约束确定，本文以龙头当前半径作为盘入状态变量，建立给定螺距与龙头位置下的舞龙队空间构型模型，并利用问题一中的板凳连接约束递推求解各节板凳位置。
 
 在碰撞约束处理方面，本文沿用问题二中的几何碰撞模型，将板凳等效为矩形刚体，并基于舞龙盘入过程中的碰撞特点，检测龙头与附近内层板凳之间的潜在碰撞关系。采用分离轴定理（SAT）计算板凳间最小净间隙，以判断当前螺距是否满足调头要求。对于给定螺距，本文通过多尺度半径搜索确定盘入全过程中的最小安全间隙；随后将螺距求解转化为单调可行性问题，利用二分搜索算法逐步逼近安全与不安全的临界螺距，最终获得满足调头空间约束的最小螺距。
 
 \subsection{问题四分析}
+本文考虑舞龙队由盘入螺线经过调头曲线进入盘出螺线的完整运动过程。首先，根据题目给定的盘入、盘出螺线关系以及调头空间约束，建立由两段相切圆弧组成的 S 形调头曲线模型，使其分别与两侧螺线保持切向连续。通过求解圆弧半径及圆心位置，获得完整连续运动路径。
 
-\subsection{问题五分析}
+由于该路径由多种曲线组合而成，无法直接采用单一极角参数描述，因此本文引入路径弧长参数 s，将盘入螺线、调头圆弧和盘出螺线统一表示为参数曲线 P(s)。龙头前把手保持匀速运动，因此满足 s=vt，从而可以根据时间确定龙头位置。随后利用板凳之间固定连接约束，通过弧长递推求解各节板凳位置，并结合路径切向量建立速度传播关系，最终获得调头过程中整个舞龙队的位置和速度分布。
+
+\subsection{问题五分析}针对问题五，本文在问题四建立的盘入—调头—盘出连续路径模型基础上，进一步考虑舞龙队运行过程中的速度约束。由于龙头速度变化会按照刚性连接关系传递至各节板凳，因此本文首先建立把手速度与龙头速度之间的比例关系。
+
+设路径弧长参数为s，第i个把手的位置表示为$P(s_i)$。根据板凳连接约束，相邻把手间距离保持不变，对约束方程进行时间求导，结合路径切向量得到相邻把手弧长速度之间的递推关系，从而建立由龙头速度向后续把手速度传播的速度模型。在此基础上，通过问题四路径模型计算不同时间下各把手速度变化，并搜索整个运动过程中所有把手速度的最大值。
+
+由于速度最大值随时间变化且不存在显式解析表达式，本文采用多尺度时间搜索与局部优化相结合的方法确定最大风险状态。设龙头速度为$V_h$，单位龙头速度下的最大把手速度为M，则所有把手速度满足线性关系$v_i=MV_h$，根据速度限制条件$v_i\le2m/s$，最终得到龙头允许的最大行进速度：
+\begin{equation}
+    V_h^{max}=\frac{2}{M}
+\end{equation}
+
 
 %%%%%准备工作%%%%%
 \section{初步准备}
@@ -146,6 +160,7 @@
 $\rho$ & 极径 & m \\
 $\theta$ & 极角 & rad \\
 $d$ & 螺距 & m \\
+$s$ & 弧长 & m \\
 $v$ & 龙头前把手前进速度 & m/s \\
 $d_1$ & 把手中心到最近板头距离 & m \\
 $d_2$ & 半个板宽 & m \\
@@ -176,11 +191,15 @@ $D$ & 调头空间直径 & \\
 \subsection{问题一的模型建立与求解}
 \subsubsection{模型建立}
 
-将等距螺线表示为
+本文采用阿基米德螺线描述舞龙队盘入路径，其极坐标形式为
 \begin{equation}
-    r=b\theta
+    \rho=b\theta
 \end{equation}
-从而将二维位置$(x,y)$转换为单参数$\theta$表示。
+其中：
+\begin{equation}
+    b=\frac{d}{2\pi}
+\end{equation}
+阿基米德螺线具有极径随极角线性变化的特点，相关理论可参考文献\cite{archimedes_spiral}，因此我们可将二维位置$(x,y)$转换为单参数$\theta$表示。
 
 龙头沿等距螺线以恒定速度1m/s运动，故其位置变化等价为螺线弧长的线性减少：
 \begin{equation}
@@ -200,6 +219,38 @@ $D$ & 调头空间直径 & \\
 
 \subsubsection{计算结果}
 
+将数值带入距离约束与递推公式，使用编程求解得到的结果如下:
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\linewidth]{outputs/figures/question1_trajectory.png}
+    \caption{t=0至t=300s 整个舞龙队位置示意图}
+    \label{fig:ques1_tra}
+\end{figure}
+
+\begin{table}[H]
+    \centering
+    \caption{t=0至t=300s整个舞龙队位置汇总}
+    \label{tab:dragon-postion}
+
+    \csvautotabular{
+        outputs/tables/question1_summary_position.csv
+    }
+
+\end{table}
+
+\begin{table}[H]
+    \centering
+    \caption{t=0至t=300s整个舞龙队速度汇总}
+    \label{tab:dragon-speed}
+
+    \csvautotabular{
+        outputs/tables/question1_summary_speed.csv
+    }
+
+\end{table}
+
+
 \subsection{问题二的模型建立与求解}
 \subsubsection{模型建立}
 在盘入过程中，龙头以恒定速度不断往内盘入，这让螺旋曲线的曲率越来越大，而板凳长度不可变，这使得相邻的两个板凳之间的夹角越来越小，于是越来越容易发生碰撞。
@@ -212,25 +263,317 @@ $D$ & 调头空间直径 & \\
 
 (在此处插入图片及公式)TODO
 
-这样就可以把板凳碰撞转化为求解两个矩形相交的问题，为了解决矩形相交问题，接下来引入分离轴定理。
+这样就可以把板凳碰撞转化为求解两个矩形相交的问题，为了解决矩形相交问题，接下来引入分离轴定理（Separating Axis Theorem, SAT）。
 
-分离轴定理即对于两个凸多边形，若存在某一方向，使得二者在该方向上的投影区间互不重叠，则两个图形一定不相交；若在所有候选分离轴上的投影区间均发生重叠，则两个图形相交。该判别方法称为分离轴定理。由于矩形的候选分离轴只需取两矩形各自的长边方向和宽边方向，因此计算量较小，适合用于本题中大量板凳之间的碰撞检测。
+分离轴定理即对于两个凸多边形，若存在某一方向，使得二者在该方向上的投影区间互不重叠，则两个图形一定不相交；若在所有候选分离轴上的投影区间均发生重叠，则两个图形相交。该判别方法称为分离轴定理。该方法广泛应用于计算机图形学中的凸多边形碰撞判断\cite{separating_axis_theorem}。由于矩形的候选分离轴只需取两矩形各自的长边方向和宽边方向，因此计算量较小，适合用于本题中大量板凳之间的碰撞检测。
 
+（此处插入图片及公式）TODO
 
+在本题中，第二问即为一个求矩形相交的临界搜索问题，设当前时刻的最小净间隙(即投影之间的间隙)为 G(t)，若 G(t)>0，说明各检测板凳之间没有碰撞；若 G(t)$\le$0，说明至少存在一组板凳发生接触或重叠。因此第二问的目标是寻找首次满足 G(t)$\le$0 的时刻，并取其左侧安全时刻作为最终终止时刻。所以这个问题就转化为了求解
+\begin{equation}
+t^*=\inf\{t\mid G(t)\le 0\}
+\end{equation}
+其中\(t^*\)表示首次碰撞的临界时刻，最终输出时取\(t^*\)左侧的安全侧时刻.
+
+为了求解该问题，我们从0时刻开始，以1s为步长，利用第一问记录的位置数据及计算方法计算了龙头与内侧两圈板凳之间每秒的最小净间隙G(t),直到找到第一个$t_1$使得G($t_1$)$\le$0，考虑到这样计算是计算离散的数值，所以可能导致此次碰撞并非第一次碰撞，所以我们先记录$t_1$和前一秒的安全时刻$t_0$，然后缩短步长为0.1s从$t_0$开始继续搜索第一次碰撞，再找到第一个碰撞时间$t_1^'$及其前一个安全时刻$t_0^'$，接着再次缩短步长为0.01s再次从$t_0^'$开始求出di'yi，然后利用第一问得出的位置计算公式()并通过对时间区间[$t_0$，$t_1$]进行二分搜索来寻找实际上第一次碰撞的时间$t^*$。具体流程如下：
+
+(待插入流程图)
 
 \subsubsection{计算结果}
+
+通过上述方法求解，解出碰撞时间区间为[412s-413s]，然后在这个区间里进行精度$\epsilon=10^{-6}$的二分搜索，得出碰撞时间$t^*$=412.473838秒。同时绘制出了每一时刻的碰撞间隙变化曲线和局部碰撞示意图如下
+
+\begin{figure}
+    \centering
+    \includegraphics[width=1.0\linewidth]{outputs/figures/question2_gap_curve.png}
+    \caption{碰撞间隙变化曲线}
+    \label{fig:placeholder}
+\end{figure}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=1\linewidth]{outputs/figures/question2_local_geometry.png}
+    \caption{局部碰撞示意图}
+    \label{fig:placeholder}
+\end{figure}
+
+按照题目要求，我们把这个时刻舞龙队的位置和速度结果存放到文件 result2.xlsx 中，同时给出龙头后面第 1、51、101、151、201 条龙身前把手和龙尾后把手的位置和速度如下表所示：
+\begin{table}[htbp]
+    \centering
+    \caption{各节板凳的位置与速度}
+    \label{tab:position_velocity}
+
+    \csvautotabular{
+    outputs/tables/question2_summary.csv
+    }
+\end{table}
+
 
 \subsection{问题三的模型建立与求解}
 \subsubsection{模型建立}
 \subsubsection{计算结果}
 
 \subsection{问题四的模型建立与求解}
-\subsubsection{模型建立}
-\subsubsection{计算结果}
+\subsubsection{调头路线几何展示}
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{}
+    \caption{Caption}
+    \label{fig:placeholder}
+\end{figure}
+
+\subsubsection{调头模型的建立}
+为描述板凳龙在调头空间内的运动过程，可以参照问题一的实现方案采用极角$\theta$建立以调头圆圆心为原点的极坐标系，并以极坐标形式表示盘入、盘出螺线。但是对于调头的两端圆弧使用$\theta$描述会使式子相当复杂，难以计算。
+
+因此作出假设，以盘入螺线与第一段圆弧的切点A处为弧长零点，将板凳龙的把手位置坐标建立为弧长$s$的函数，通过把手行过的弧长计算把手所在位置，因此我们需要建立盘入螺线，第一段圆弧，第二段圆弧，盘出螺线的位置$P$对弧长$s$的函数$P(s)$。
+
+\textbf{盘入螺线}
+
+已知盘入螺线参数方程为
+\begin{equation}
+    \rho=b\theta
+\end{equation}
+可以确定盘入螺线上的把手位置函数为
+\begin{equation}
+P_{\mathrm{in}}(\theta)=\bigl(b\theta\cos\theta,\ b\theta\sin\theta\bigr)
+\end{equation}
+根据阿基米德螺线的弧长函数
+\begin{equation}
+s(\theta)=\frac{b}{2}\left(\theta\sqrt{1+\theta^2}+\ln(\theta+\sqrt{1+\theta^2}\right)
+\end{equation}
+可以确定盘入段的全局路径为
+\begin{equation}
+P(s)= \bigl( b\theta_{\mathrm{in}}(s)\cos\theta_{\mathrm{in}}(s),
+b\theta_{\mathrm{in}}(s)\sin\theta_{\mathrm{in}}(s) \bigr), \qquad s<0
+\end{equation}
+
+盘入螺线与调头区间的临界点为A
+调头空间为直径 $9\ \mathrm{m}$ 的圆形区域，其半径$R=4.5\ \mathrm{m}$由$b\theta_A=R$可得$\theta_A=\frac{R}{b}=\frac{4.5}{b}$
+从而临界点A坐标为$\bigl(4.5\cos\theta_A,\ 4.5\sin\theta_A\bigr)$，弧长$s_A=0$
+
+\textbf{盘出螺线}
+
+由于盘出螺线与盘入螺线关于原点中心对称，故盘出螺线位置函数可表示为
+\begin{equation}
+P_{\mathrm{out}}(\theta)=-P_{\mathrm{in}}(\theta) =\bigl(-b\theta\cos\theta,\ -b\theta\sin\theta\bigr)
+\end{equation}
+同理，盘出螺线全局路径可以表示为为
+\begin{equation}
+P(s)= \bigl( -b\theta_{\mathrm{out}}(s)\cos\theta_{\mathrm{out}}(s),
+-b\theta_{\mathrm{out}}(s)\sin\theta_{\mathrm{out}}(s) \bigr), \qquad s\ge L_1+L_2
+\end{equation}
+盘出螺线与第二段圆弧临界点B坐标可以表示为$\bigl(-4.5\cos\theta_B,\ -4.5\sin\theta_B\bigr)$。设两段弧长为$L_1,L_2$，弧长$s_B=L_1+L_2$。
+
+\textbf{第一段圆弧}
+
+为了保证圆弧与螺线光滑连接，需要求出螺线在切点处的切向方向。由盘入螺线求导得
+\begin{equation}
+x'(\theta)=b(\cos\theta-\theta\sin\theta),\qquad y'(\theta)=b(\sin\theta+\theta\cos\theta)
+\end{equation}
+于是盘入螺线在参数 $\theta$ 处的切向量为
+\begin{equation}
+T(\theta)=\bigl(b(\cos\theta-\theta\sin\theta),\ b(\sin\theta+\theta\cos\theta)\bigr)
+\end{equation}
+在点 $A$ 处的单位切向量与单位法向量分别记为
+\begin{equation}
+\hat{\tau}A=\frac{T(\theta_A)}{|T(\theta_A)|},\qquad \hat{n}A=(-\hat{\tau}{A,y},\ \hat{\tau}{A,x})
+\end{equation}
+同理可得点 $B$ 处的单位切向量与单位法向量$\hat{\tau}_B,\hat{n}_B$.
+根据题意，调头曲线由两段相切圆弧组成，且前一段圆弧半径是后一段圆弧半径的 $2$ 倍。设后一段圆弧半径为 $R_2$，则前一段圆弧半径为$R_1=2R_2$
+设两圆弧圆心分别为 $O_1,O_2$，根据圆弧在 $A,B$ 处分别与螺线相切，有\begin{equation}
+O_1=A+\sigma_1R_1\hat{n}_A,\qquad O_2=B+\sigma_2R_2\hat{n}_B
+\end{equation}
+其中$\sigma_1,\sigma_2\in\{+1,-1\}$用于表示圆心位于法向量的哪一侧。
+两段圆弧在连接点 $C$ 处外切，因此有$|O_1-O_2|=R_1+R_2$即$|O_1-O_2|=3R_2$。
+因此 $C$ 可由内分公式表示为
+\begin{equation}
+C=O_1+\frac{O_1}{O_1+O_2}(O_2-O_1)
+\end{equation}
+即
+\begin{equation}
+C=O_1+\frac{2}{3}(O_2-O_1) =\frac13 O_1+\frac23 O_2
+\end{equation}
+
+设圆弧 $1$ 的起始极角为
+\begin{equation}
+\alpha_A=\operatorname{atan2}(A_y-y_{o1},A_x-x_{o1})
+\end{equation}
+圆弧方向记为 $\varepsilon_1\in\{+1,-1\}$，则
+\begin{equation}
+\alpha_1(s)=\alpha_A+\varepsilon_1\frac{s}{R_1}, \qquad 0\le s\le L_1
+\end{equation}
+则第一段圆弧对应的全局轨迹为
+\begin{equation}
+P(s)= \bigl( x_{o1}+R_1\cos\alpha_1(s),
+y_{o1}+R_1\sin\alpha_1(s) \bigr), \qquad 0\le s\le L_1
+\end{equation}
+
+\textbf{第二段圆弧}
+
+设圆弧 $2$ 在点 $D$ 处的起始极角为
+\begin{equation}
+\beta_D=\operatorname{atan2}(D_y-y_{o2},D_x-x_{o2})
+\end{equation}
+方向记为 $\varepsilon_2\in\{+1,-1\}$，则
+\begin{equation}
+\beta_2(s)=\beta_D+\varepsilon_2\frac{s-L_1}{R_2}, \qquad L_1\le s\le L_1+L_2
+\end{equation}
+第二段圆弧对应的全局轨迹为
+\begin{equation}
+P(s)= \bigl( x_{o2}+R_2\cos\beta_2(s),
+y_{o2}+R_2\sin\beta_2(s) \bigr), \qquad L_1\le s\le L_1+L_2
+\end{equation}
+盘出段对应 $s\ge L_1+L_2$。由于点 $B$ 的螺线参数仍为 $\theta_A$，故其参数满足
+\begin{equation}
+S(\theta_{\mathrm{out}}(s))=S_A+s-(L_1+L_2), \qquad s\ge L_1+L_2
+\end{equation}
+
+综上，第四问龙头路径被统一为关于弧长参数 $s$ 的分段函数
+\begin{equation}
+P(s)= \begin{cases} \bigl( b\theta_{\mathrm{in}}(s)\cos\theta_{\mathrm{in}}(s),
+b\theta_{\mathrm{in}}(s)\sin\theta_{\mathrm{in}}(s) \bigr), & s<0,\\[0.6em] \bigl( x_{c1}+R_1\cos\alpha_1(s),
+y_{c1}+R_1\sin\alpha_1(s) \bigr), & 0\le s\le L_1,\\[0.6em] \bigl( x_{c2}+R_2\cos\beta_2(s),
+y_{c2}+R_2\sin\beta_2(s) \bigr), & L_1\le s\le L_1+L_2,\\[0.6em] \bigl( -b\theta_{\mathrm{out}}(s)\cos\theta_{\mathrm{out}}(s),
+-b\theta_{\mathrm{out}}(s)\sin\theta_{\mathrm{out}}(s) \bigr), & s\ge L_1+L_2 \end{cases}
+\end{equation}
+此处可插入调头路径几何示意图，以说明点 $A,D,B$、圆心 $C_1,C_2$ 及四段路径的对应关系。
+\begin{figure}[H]
+\centering
+% \includegraphics[width=0.62\textwidth]{question4_path.png}
+\caption{调头路径几何示意图}
+\label{fig:q4_path}
+\end{figure}
+\subsubsection{调头模型的求解}
+在调头路径已经建立的基础上，下面求解板凳龙在 $-100\ \mathrm{s}$ 至 $100\ \mathrm{s}$ 内各把手的位置与速度。根据题意，取龙头进入调头区域时刻为时间原点，因此
+\begin{equation}
+t=0 \quad \text{对应点 } A
+\end{equation}
+由于龙头沿路径以 $1\ \mathrm{m/s}$ 匀速运动，而参数 $s$ 本身为路径弧长，因此龙头的弧长坐标满足
+\begin{equation}
+s_0(t)=t, \qquad t\in[-100,100]
+\end{equation}
+于是龙头前把手的位置可写为
+\begin{equation}
+P_0(t)=P(s_0(t))=P(t)
+\end{equation}
+接着考虑其余把手。设第 $i-1$ 个把手和第 $i$ 个把手之间的固定距离为 $d_i$，则
+\begin{equation}
+d_1=3.41-2\times 0.275=2.86\ \mathrm{m}
+\end{equation}
+其余相邻把手间距为
+\begin{equation}
+d_i=2.20-2\times 0.275=1.65\ \mathrm{m}, \qquad i\ge 2
+\end{equation}
+由于所有把手均位于同一条全局路径上，因此对任意时刻 $t$，第 $i$ 个把手的弧长参数 $s_i(t)$ 满足
+\begin{equation}
+|P(s_i(t))-P(s_{i-1}(t))|=d_i
+\end{equation}
+写成平方形式得
+\begin{equation}
+F_i(s_i,s_{i-1})
+|P(s_i)-P(s_{i-1})|^2-d_i^2=0
+\end{equation}
+由于第 $i$ 个把手位于第 $i-1$ 个把手的后方，因此取满足
+\begin{equation}
+s_i(t)<s_{i-1}(t)
+\end{equation}
+的根。于是可按 $i=1,2,\dots,223$ 逐点递推得到全部把手的位置参数 $s_i(t)$，进而由
+\begin{equation}
+P_i(t)=P(s_i(t))
+\end{equation}
+求出各把手的平面位置。
+对于速度，先利用龙头匀速条件得到
+\begin{equation}
+\dot{s}_0(t)=1
+\end{equation}
+再对约束方程关于时间求导，得到
+\begin{equation}
+\frac{\partial F_i}{\partial s_i}\dot{s}i + \frac{\partial F_i}{\partial s{i-1}}\dot{s}_{i-1}=0
+\end{equation}
+其中
+\begin{equation}
+\frac{\partial F_i}{\partial s_i}
+2\bigl(P(s_i)-P(s_{i-1})\bigr)\cdot P'(s_i)
+\end{equation}
+\begin{equation}
+\frac{\partial F_i}{\partial s_{i-1}}
+-2\bigl(P(s_i)-P(s_{i-1})\bigr)\cdot P'(s_{i-1})
+\end{equation}
+因此可得速度递推公式
+\begin{equation}
+\dot{s}_i
+\frac{\bigl(P(s_i)-P(s_{i-1})\bigr)\cdot P'(s_{i-1})} {\bigl(P(s_i)-P(s_{i-1})\bigr)\cdot P'(s_i)} \dot{s}_{i-1}
+\end{equation}
+又由于 $s$ 是弧长参数，所以第 $i$ 个把手的实际速度大小即为
+\begin{equation}
+v_i(t)=|\dot{s}_i(t)|
+\end{equation}
+因此，在任一给定时刻 $t$ 下，第四问的求解流程可概括为：
+\begin{enumerate}
+\item 由
+\begin{equation}
+s_0(t)=t
+\end{equation}
+计算龙头前把手弧长参数 $s_0(t)$；
+\item 由全局路径分段函数 $P(s)$ 计算龙头位置
+\begin{equation}
+P_0(t)=P(s_0(t))
+\end{equation}
+；
+\item 利用约束方程
+\begin{equation}
+|P(s_i(t))-P(s_{i-1}(t))|=d_i
+\end{equation}
+逐点递推所有把手的弧长参数 $s_i(t)$；
+\item 利用
+\begin{equation}
+P_i(t)=P(s_i(t))
+\end{equation}
+计算所有把手位置；\item 利用
+\begin{equation}
+\dot{s}_0(t)=1,\qquad \dot{s}_i
+\frac{\bigl(P(s_i)-P(s_{i-1})\bigr)\cdot P'(s_{i-1})} {\bigl(P(s_i)-P(s_{i-1})\bigr)\cdot P'(s_i)} \dot{s}_{i-1}
+\end{equation}
+逐点递推所有把手速度。
+\end{enumerate}
+按题目要求，对
+\begin{equation}
+t=-100,-99,\dots,99,100
+\end{equation}
+共 $201$ 个时刻重复上述过程，即可得到完整的位置矩阵与速度矩阵，并导出第四问结果表。
+此处可插入一张状态示意图，展示在某一典型时刻板凳龙同时处于盘入、调头和盘出三个区域的空间形态。
+\begin{figure}[H]
+\centering
+% \includegraphics[width=0.60\textwidth]{question4_state.png}
+\caption{第四问典型时刻板凳龙状态示意图}
+\label{fig:q4_state}
+\end{figure}
+此处还可插入代表节点速度曲线图，用于展示速度分布规律。
+\begin{figure}[H]
+\centering
+% \includegraphics[width=0.78\textwidth]{question4_speed.png}
+\caption{第四问代表节点速度变化曲线}
+\label{fig:q4_speed}
+\end{figure}
+此外，正文中可配套给出第四问关键节点在若干典型时刻的位置与速度结果表，以便与程序输出相对应。
+\begin{table}[H]
+\centering
+\caption{第四问关键节点位置结果表}
+\label{tab:q4_position}
+% 这里插入位置结果表
+\end{table}
+\begin{table}[H]
+\centering
+\caption{第四问关键节点速度结果表}
+\label{tab:q4_speed}
+% 这里插入速度结果表
+\end{table}
+综上，第四问通过“螺线--双圆弧--螺线”的统一弧长参数模型，将几何构造与运动学递推自然衔接起来，既保证了调头路径与题设约束一致，又能够完整求出板凳龙在调头全过程中的位置与速度变化规律。
 
 \subsection{问题五的模型建立与求解}
 \subsubsection{模型建立}
 \subsubsection{计算结果}
+
 
 %%%%%评价%%%%%
 \section{模型评价}
@@ -243,10 +586,17 @@ $D$ & 调头空间直径 & \\
 
 本文通过对“板凳龙”问题的分析与建模、编写代码与计算结果，发现了...
 
-%%%%%参考文献%%%%%s
+%%%%%参考文献%%%%%
 \begin{thebibliography}{99}   % 99 是最大编号宽度
-\bibitem{ref1} 张三, 李四. 论文标题[J]. 计算机学报, 2023, 46(1): 1-10.
-\bibitem{ref2} Knuth D E. The TEXbook[M]. Addison-Wesley, 1984.
+\bibitem{archimedes_spiral}
+George B. Thomas, Maurice D. Weir, Joel Hass.
+\newblock \emph{Thomas' Calculus}.
+\newblock Pearson, 14th edition, 2018.
+
+\bibitem{separating_axis_theorem}
+Christer Ericson.
+\newblock \emph{Real-Time Collision Detection}.
+\newblock Morgan Kaufmann, 2004.
 \end{thebibliography}
 
 \section*{附录}
