@@ -531,6 +531,7 @@ def write_result4_excel(position_df, speed_df, output_path):
 def save_question1_figures(position, speed, time_points):
     """保存第一问图像。"""
     ensure_dir(dragon_data.OUTPUT_FIGURES_DIR)
+    configure_chinese_plotting()
 
     figure_path_1 = dragon_data.OUTPUT_FIGURES_DIR / "question1_trajectory.png"
     figure_path_2 = dragon_data.OUTPUT_FIGURES_DIR / "question1_speed.png"
@@ -543,7 +544,7 @@ def save_question1_figures(position, speed, time_points):
         plt.plot(position[:, 0, time_index], position[:, 1, time_index], label=f"{int(time_points[time_index])} s")
     plt.xlabel("x (m)")
     plt.ylabel("y (m)")
-    plt.title("Question 1 Trajectory Snapshots")
+    plt.title("问题一轨迹关键时刻示意图")
     plt.axis("equal")
     plt.legend()
     plt.tight_layout()
@@ -562,9 +563,9 @@ def save_question1_figures(position, speed, time_points):
     }
     for point_index in [0, 1, 51, 101, 151, 201, 223]:
         plt.plot(time_points, speed[point_index], label=labels[point_index])
-    plt.xlabel("Time (s)")
-    plt.ylabel("Speed (m/s)")
-    plt.title("Question 1 Representative Speeds")
+    plt.xlabel("时间 (s)")
+    plt.ylabel("速度 (m/s)")
+    plt.title("问题一代表节点速度曲线")
     plt.legend()
     plt.tight_layout()
     plt.savefig(figure_path_2, dpi=200)
@@ -839,6 +840,103 @@ def save_question2_sat_projection(rectangle_a, rectangle_b, sat_result, output_p
     plt.close(fig)
 
 
+def save_question2_bench_geometry_schematic(output_path, bench_length=2.20, bench_width=0.30, handle_offset=0.275):
+    """保存单块板凳由两把手确定四顶点的示意图。"""
+    output_path = Path(output_path)
+    ensure_dir(output_path.parent)
+    configure_chinese_plotting()
+
+    E1 = np.array([0.0, 0.0], dtype=float)
+    E2 = np.array([bench_length, 0.0], dtype=float)
+    A1 = np.array([0.0, bench_width / 2.0], dtype=float)
+    A2 = np.array([0.0, -bench_width / 2.0], dtype=float)
+    A3 = np.array([bench_length, -bench_width / 2.0], dtype=float)
+    A4 = np.array([bench_length, bench_width / 2.0], dtype=float)
+
+    M1 = np.array([handle_offset, 0.0], dtype=float)
+    M2 = np.array([bench_length - handle_offset, 0.0], dtype=float)
+    center = 0.5 * (M1 + M2)
+    u = normalize_vector(M2 - M1)
+    n = np.array([-u[1], u[0]], dtype=float)
+
+    fig, ax = plt.subplots(figsize=(8.5, 4.8))
+
+    rectangle_x = [A1[0], A4[0], A3[0], A2[0], A1[0]]
+    rectangle_y = [A1[1], A4[1], A3[1], A2[1], A1[1]]
+    ax.fill(rectangle_x, rectangle_y, color="#f5d7a1", alpha=0.55, zorder=1)
+    ax.plot(rectangle_x, rectangle_y, color="#8c564b", linewidth=2.0, zorder=2)
+
+    ax.plot([E1[0], E2[0]], [E1[1], E2[1]], color="#666666", linewidth=1.4, linestyle="--", zorder=2)
+    ax.plot([M1[0], M2[0]], [M1[1], M2[1]], color="black", linewidth=1.8, zorder=3)
+
+    u_length = 0.45 * np.linalg.norm(M2 - M1)
+    n_length = 0.60
+    ax.arrow(
+        M1[0],
+        M1[1],
+        u[0] * u_length,
+        u[1] * u_length,
+        width=0.01,
+        head_width=0.08,
+        head_length=0.12,
+        length_includes_head=True,
+        color="#d62728",
+        zorder=4,
+    )
+    ax.arrow(
+        center[0],
+        center[1],
+        n[0] * n_length,
+        n[1] * n_length,
+        width=0.01,
+        head_width=0.08,
+        head_length=0.12,
+        length_includes_head=True,
+        color="#1f77b4",
+        zorder=4,
+    )
+
+    label_points = {
+        "M1": (M1, (-0.10, 0.10)),
+        "M2": (M2, (0.06, 0.10)),
+        "E1": (E1, (-0.10, -0.16)),
+        "E2": (E2, (0.06, -0.16)),
+        "A1": (A1, (-0.12, 0.10)),
+        "A2": (A2, (-0.12, -0.16)),
+        "A3": (A3, (0.06, -0.16)),
+        "A4": (A4, (0.06, 0.10)),
+    }
+    for label, (point, offset) in label_points.items():
+        ax.scatter(point[0], point[1], color="black", s=24, zorder=5)
+        ax.text(point[0] + offset[0], point[1] + offset[1], label, fontsize=11, color="black")
+
+    ax.text(
+        M1[0] + 0.55 * u_length,
+        M1[1] + 0.08,
+        r"$\mathbf{u}$",
+        color="#d62728",
+        fontsize=12,
+        ha="center",
+    )
+    ax.text(
+        center[0] + 0.10,
+        center[1] + 0.55 * n_length,
+        r"$\mathbf{n}$",
+        color="#1f77b4",
+        fontsize=12,
+        ha="left",
+    )
+
+    ax.set_aspect("equal", adjustable="box")
+    ax.axis("off")
+    ax.set_xlim(-0.45, bench_length + 0.45)
+    ax.set_ylim(-0.65, 0.75)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200)
+    plt.close(fig)
+    return output_path
+
+
 def _find_question4_snapshot_index(s_values, geometry):
     """选择一个同时包含盘入、调头和盘出的时刻。"""
     for time_index in range(s_values.shape[1]):
@@ -884,6 +982,10 @@ def save_question4_turn_schematic(geometry, output_path):
         )
         return start_angle + orientation * np.linspace(0.0, total_angle, count)
 
+    def shortest_arc_angles(start_angle, end_angle, count=100):
+        delta = (float(end_angle) - float(start_angle) + np.pi) % (2.0 * np.pi) - np.pi
+        return float(start_angle) + np.linspace(0.0, delta, count)
+
     inner_span = 2.4 * np.pi
     outer_turns = 2.0
     theta_in_main = np.linspace(theta_a + inner_span, theta_a, 360)
@@ -923,6 +1025,38 @@ def save_question4_turn_schematic(geometry, output_path):
     ax.plot([C[0], O1[0]], [C[1], O1[1]], color=radius_color_1, linewidth=1.6)
     ax.plot([B[0], O2[0]], [B[1], O2[1]], color=radius_color_2, linewidth=1.6)
     ax.plot([C[0], O2[0]], [C[1], O2[1]], color=radius_color_2, linewidth=1.6)
+
+    centerline_color = "#4a4a4a"
+    ax.plot(
+        [A[0], O[0], B[0]],
+        [A[1], O[1], B[1]],
+        color=centerline_color,
+        linewidth=1.4,
+        linestyle="--",
+        zorder=1,
+    )
+
+    alpha_radius = max(0.28, 0.11 * turn_radius)
+    alpha_angles = shortest_arc_angles(polar_angle(O1, C), polar_angle(A, C), 100)
+    ax.plot(
+        C[0] + alpha_radius * np.cos(alpha_angles),
+        C[1] + alpha_radius * np.sin(alpha_angles),
+        color="black",
+        linewidth=1.2,
+        zorder=4,
+    )
+    alpha_mid = alpha_angles[len(alpha_angles) // 2]
+    alpha_label_radius = alpha_radius + 0.16
+    ax.text(
+        C[0] + alpha_label_radius * np.cos(alpha_mid),
+        C[1] + alpha_label_radius * np.sin(alpha_mid),
+        r"$\alpha$",
+        fontsize=12,
+        color="black",
+        ha="center",
+        va="center",
+        zorder=5,
+    )
 
     point_style = {
         "A": (A, (0.10, -0.12)),
