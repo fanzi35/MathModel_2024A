@@ -33,9 +33,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.ticker import FormatStrFormatter
 
 import dragon_data
 import utils
+
+# 中文绘图设置
+plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "SimSun", "Noto Sans CJK SC"]
+plt.rcParams["axes.unicode_minus"] = False
 
 
 # ==========================
@@ -90,7 +95,7 @@ class GapResult:
 
     @property
     def safe(self) -> bool:
-        return self.global_gap >= -GAP_EPS
+        return self.global_gap >= 0.0
 
 
 # ==========================
@@ -336,7 +341,7 @@ def _scan_radius_intervals(pitch: float, intervals: List[Tuple[float, float]], s
 
 
 def minimum_gap_along_path(pitch: float, return_history: bool = False) -> Tuple[GapResult, Optional[pd.DataFrame]]:
-    """计算某螺距下盘入到调头边界前，龙头与内两层板凳的全过程最小净间隙。"""
+    """计算某螺距下龙头盘入至调头边界前的全过程最小净间隙。\n    检测区间为 TURNING_RADIUS <= 龙头极径 <= 初始极径，不检测调头空间内部。\n    """
     pitch = float(pitch)
     initial_radius = pitch * INITIAL_THETA / (2.0 * np.pi)  # =16p
 
@@ -526,6 +531,7 @@ def save_outputs(result: dict) -> Dict[str, Path]:
     summary_txt = table_dir / "question3_summary.txt"
     gap_radius_png = fig_dir / "question3_gap_vs_radius.png"
     gap_pitch_png = fig_dir / "question3_bisection_gap.png"
+    gap_pitch_zoom_png = fig_dir / "question3_bisection_gap_zoom.png"
 
     result["bracket_df"].to_csv(bracket_csv, index=False, encoding="utf-8-sig")
     pd.DataFrame(result["iterations"]).to_csv(iterations_csv, index=False, encoding="utf-8-sig")
@@ -537,41 +543,245 @@ def save_outputs(result: dict) -> Dict[str, Path]:
         f"理论半径约束下界: {THEORETICAL_PITCH_LOW:.9f} m\n"
         f"本文采用的二分下界: {PITCH_SEARCH_LOW:.9f} m（板凳宽度）\n"
         f"内两层极角范围: theta_head 到 theta_head + {LAYER_THETA_SPAN:.9f}\n"
+        f"安全判定区间: 龙头极径 rho 从 {result['final_pitch'] * INITIAL_THETA / (2.0 * np.pi):.9f} m 盘入至 {TURNING_RADIUS:.9f} m，要求全过程 G>=0\n"
         f"最小安全螺距: {result['final_pitch']:.9f} m\n"
         f"最小安全螺距: {result['final_pitch'] * 100.0:.6f} cm\n"
-        f"临界最小净间隙: {result['final_gap']:.12f} m\n"
-        f"临界半径: {result['final_gap_radius']:.9f} m\n"
-        f"临界板凳对: {result['best_pair']}\n"
-        f"临界状态检测板凳对数量: {result['final_pair_count']}\n"
+        f"最终临界半径（调头边界）: {result['final_gap_radius']:.9f} m\n"
+        f"边界处净间隙: {result['final_gap']:.12f} m\n"
+        f"边界处检测板凳对: {result['best_pair']}\n"
+        f"全过程最小净间隙: {result['path_min_gap']:.12f} m\n"
+        f"全过程最危险极径: {result['path_risk_radius']:.9f} m\n"
+        f"全过程最危险板凳对: {result['path_risk_pair']}\n"
+        f"边界状态检测板凳对数量: {result['final_pair_count']}\n"
     )
     summary_txt.write_text(summary, encoding="utf-8")
 
     rdf = result["radius_history_df"]
+    stage_name_map = {
+        "coarse": "粗扫描",
+        "refine": "细化扫描",
+        "final_refine": "最小间隙邻域细化",
+    }
+    stage_style_map = {
+        "coarse": {"markersize": 2, "linewidth": 1.0, "zorder": 1},
+        "refine": {"markersize": 3, "linewidth": 1.2, "zorder": 2},
+        "final_refine": {"markersize": 5, "linewidth": 1.8, "zorder": 3},
+    }
+
     plt.figure(figsize=(9, 5))
-    for stage, group in rdf.groupby("stage"):
-        plt.plot(group["head_radius_m"], group["gap_m"], marker="o", markersize=2, linewidth=1.0, label=stage)
-    plt.axhline(0.0, linestyle="--", linewidth=1.0)
-    plt.axvline(TURNING_RADIUS, linestyle="--", linewidth=1.0)
-    plt.gca().invert_xaxis()
-    plt.xlabel("Head radius r (m)")
-    plt.ylabel("SAT gap (m)")
-    plt.title("Question 3: Head-vs-Two-Layer Gap Along Path")
-    plt.legend()
+    ax = plt.gca()
+
+    for stage in ["coarse", "refine", "final_refine"]:
+        group = rdf[rdf["stage"] == stage].copy()
+        if len(group) == 0:
+            continue
+
+        # 直接绘制真实 SAT 净间隙，不做截断处理。
+        gap_plot = group["gap_m"].to_numpy(dtype=float)
+        style = stage_style_map[stage]
+
+        ax.plot(
+            group["head_radius_m"].to_numpy(dtype=float),
+            gap_plot,
+            marker="o",
+            markersize=style["markersize"],
+            linewidth=style["linewidth"],
+            zorder=style["zorder"],
+            label=stage_name_map.get(stage, stage),
+        )
+
+    ax.axhline(0.0, linestyle="--", linewidth=1.0, label="碰撞临界线 G=0")
+    ax.axvline(TURNING_RADIUS, linestyle="--", linewidth=1.0, label=f"调头边界 ρ={TURNING_RADIUS:.1f} m")
+    ax.invert_xaxis()
+
+    y_min = float(np.nanmin(rdf["gap_m"].to_numpy(dtype=float)))
+    y_max = float(np.nanmax(rdf["gap_m"].to_numpy(dtype=float)))
+    y_pad = max(0.001, 0.08 * (y_max - y_min + 1e-12))
+    ax.set_ylim(y_min - y_pad, y_max + y_pad)
+
+    # 标出全过程最危险点（即全过程最小净间隙点）
+    risk_x = float(result["path_risk_radius"])
+    risk_y = float(result["path_min_gap"])
+    ax.scatter(
+        [risk_x],
+        [risk_y],
+        s=90,
+        marker="*",
+        zorder=6,
+        label="全过程最危险点",
+    )
+
+    # 根据坐标范围自适应放置注释，避免遮挡曲线
+    x_span = float(np.nanmax(rdf["head_radius_m"].to_numpy(dtype=float)) - np.nanmin(rdf["head_radius_m"].to_numpy(dtype=float)))
+    y_span = float(np.nanmax(rdf["gap_m"].to_numpy(dtype=float)) - np.nanmin(rdf["gap_m"].to_numpy(dtype=float)))
+    if x_span <= 0:
+        x_span = 1.0
+    if y_span <= 0:
+        y_span = 1e-6
+
+    ax.annotate(
+        f"最危险最小净间隙\nG={risk_y:.8e} m\nρ={risk_x:.6f} m",
+        xy=(risk_x, risk_y),
+        xytext=(risk_x + 0.10 * x_span, risk_y + 0.12 * y_span),
+        textcoords="data",
+        arrowprops=dict(arrowstyle="->", linewidth=1.0),
+        bbox=dict(boxstyle="round", facecolor="white", alpha=0.90),
+        fontsize=9,
+        zorder=7,
+    )
+
+    ax.set_xlabel("龙头对应的极径 ρ（m）")
+    ax.set_ylabel("SAT 最小净间隙（m）")
+    ax.set_title(f"第三问：最小安全螺距 p={result['final_pitch']:.6f} m 下的净间隙变化曲线")
+    ax.legend()
     plt.tight_layout()
     plt.savefig(gap_radius_png, dpi=200)
     plt.close()
 
     itdf = pd.DataFrame(result["iterations"])
+
+    # 图 1：螺距二分搜索全过程。横坐标保留为螺距 p。
     plt.figure(figsize=(9, 5))
+    ax = plt.gca()
+
     if len(itdf) > 0:
-        plt.plot(itdf["middle_pitch_m"], itdf["middle_gap_m"], marker="o", linewidth=1.0)
-    plt.axhline(0.0, linestyle="--", linewidth=1.0)
-    plt.axvline(result["final_pitch"], linestyle="--", linewidth=1.0)
-    plt.xlabel("Pitch p (m)")
-    plt.ylabel("Minimum SAT gap along path (m)")
-    plt.title("Question 3: Pitch Bisection History")
+        x = itdf["middle_pitch_m"].to_numpy(dtype=float)
+        y = itdf["middle_gap_m"].to_numpy(dtype=float)
+
+        # 统一点的标记方法：所有二分迭代点均使用同一种圆点标记。
+        ax.plot(
+            x,
+            y,
+            marker="o",
+            markersize=4,
+            linewidth=1.0,
+            alpha=0.85,
+            label="二分迭代点",
+        )
+
+        ax.axvline(
+            result["final_pitch"],
+            linestyle="--",
+            linewidth=1.0,
+            label=f"最小安全螺距 p={result['final_pitch']:.4f} m",
+        )
+
+    ax.axhline(0.0, linestyle="--", linewidth=1.0, label="碰撞临界线 G=0")
+    ax.set_xlabel("螺距 p（m）")
+    ax.set_ylabel("沿盘入过程的最小净间隙（m）")
+    ax.set_title("第三问：最小安全螺距二分搜索过程")
+    ax.ticklabel_format(axis="x", style="plain", useOffset=False)
+    ax.legend()
     plt.tight_layout()
     plt.savefig(gap_pitch_png, dpi=200)
+    plt.close()
+
+    # 图 1-局部：单独输出临界螺距附近的真正局部放大图。
+    # 这里只保留最后几次二分迭代点，并重新设置非常紧凑的坐标范围。
+    plt.figure(figsize=(8.2, 5.4))
+    ax_zoom = plt.gca()
+
+    if len(itdf) > 0:
+        zoom_count = min(6, len(itdf))
+        zoom_df = itdf.tail(zoom_count).copy()
+
+        x_zoom = zoom_df["middle_pitch_m"].to_numpy(dtype=float)
+        y_zoom = zoom_df["middle_gap_m"].to_numpy(dtype=float)
+
+        ax_zoom.plot(
+            x_zoom,
+            y_zoom,
+            marker="o",
+            markersize=5,
+            linewidth=1.2,
+            alpha=0.95,
+            label="二分迭代点",
+        )
+
+        ax_zoom.axvline(
+            result["final_pitch"],
+            linestyle="--",
+            linewidth=1.0,
+            label=f"最小安全螺距 p={result['final_pitch']:.6f} m",
+        )
+
+        # 使用最后几次迭代点的真实范围作为放大边界，边距取得更小，从而实现真正放大。
+        x_min, x_max = float(np.min(x_zoom)), float(np.max(x_zoom))
+        y_min, y_max = float(np.min(y_zoom)), float(np.max(y_zoom))
+
+        x_range = x_max - x_min
+        y_range = y_max - y_min
+
+        x_pad = max(5e-8, 0.08 * (x_range + 1e-12))
+        y_pad = max(5e-8, 0.10 * (y_range + 1e-12))
+
+        ax_zoom.set_xlim(x_min - x_pad, x_max + x_pad)
+        ax_zoom.set_ylim(y_min - y_pad, y_max + y_pad)
+
+        # 标出最后一次安全迭代点（即最终最小安全螺距）
+        ax_zoom.scatter(
+            [result["final_pitch"]],
+            [0.0],
+            s=70,
+            marker="s",
+            zorder=6,
+            label="最终螺距位置",
+        )
+
+        ax_zoom.xaxis.set_major_formatter(FormatStrFormatter("%.8f"))
+        ax_zoom.yaxis.set_major_formatter(FormatStrFormatter("%.8e"))
+
+    ax_zoom.axhline(0.0, linestyle="--", linewidth=1.0, label="碰撞临界线 G=0")
+    ax_zoom.set_xlabel("螺距 p（m）")
+    ax_zoom.set_ylabel("沿盘入过程的最小净间隙（m）")
+    ax_zoom.set_title("第三问：临界螺距附近二分搜索局部放大图")
+    ax_zoom.grid(True, linestyle=":", linewidth=0.6, alpha=0.8)
+    ax_zoom.legend()
+    plt.tight_layout()
+    plt.savefig(gap_pitch_zoom_png, dpi=260)
+    plt.close()
+
+    # 图 1-局部：单独输出临界螺距附近的局部放大图。
+    plt.figure(figsize=(7, 4.5))
+    ax_zoom = plt.gca()
+
+    if len(itdf) > 0:
+        x = itdf["middle_pitch_m"].to_numpy(dtype=float)
+        y = itdf["middle_gap_m"].to_numpy(dtype=float)
+        x_center = float(result["final_pitch"])
+        x_half = max(0.003, 0.12 * (float(np.max(x)) - float(np.min(x))))
+        x1, x2 = x_center - x_half, x_center + x_half
+        zoom_mask = (x >= x1) & (x <= x2)
+
+        ax_zoom.plot(
+            x[zoom_mask],
+            y[zoom_mask],
+            marker="o",
+            markersize=4,
+            linewidth=1.0,
+            alpha=0.85,
+            label="二分迭代点",
+        )
+        ax_zoom.axvline(
+            result["final_pitch"],
+            linestyle="--",
+            linewidth=1.0,
+            label=f"最小安全螺距 p={result['final_pitch']:.6f} m",
+        )
+        ax_zoom.set_xlim(x1, x2)
+
+        if np.any(zoom_mask):
+            y_zoom = y[zoom_mask]
+            y_pad = max(0.0005, 0.18 * (float(np.max(y_zoom)) - float(np.min(y_zoom)) + 1e-12))
+            ax_zoom.set_ylim(float(np.min(y_zoom)) - y_pad, float(np.max(y_zoom)) + y_pad)
+
+    ax_zoom.axhline(0.0, linestyle="--", linewidth=1.0, label="碰撞临界线 G=0")
+    ax_zoom.set_xlabel("螺距 p（m）")
+    ax_zoom.set_ylabel("沿盘入过程的最小净间隙（m）")
+    ax_zoom.set_title("第三问：临界螺距附近二分搜索局部放大图")
+    ax_zoom.legend()
+    plt.tight_layout()
+    plt.savefig(gap_pitch_zoom_png, dpi=200)
     plt.close()
 
     return {
@@ -582,6 +792,7 @@ def save_outputs(result: dict) -> Dict[str, Path]:
         "summary_txt": summary_txt,
         "gap_radius_png": gap_radius_png,
         "gap_pitch_png": gap_pitch_png,
+        "gap_pitch_zoom_png": gap_pitch_zoom_png,
     }
 
 
@@ -590,19 +801,34 @@ def solve_question3() -> dict:
     left_pitch, right_pitch, bracket_df = find_pitch_bracket()
     print(f"二分初始区间: [{left_pitch:.9f}, {right_pitch:.9f}] m")
 
-    final_pitch, final_best, iterations = bisect_pitch(left_pitch, right_pitch)
-    final_best, radius_history_df = minimum_gap_along_path(final_pitch, return_history=True)
+    # final_best 是 rho∈[4.5, 16p] 全过程中的最小净间隙状态，
+    # 用于保证“到达 4.5m 之前不碰撞”。
+    final_pitch, path_best, iterations = bisect_pitch(left_pitch, right_pitch)
+    path_best, radius_history_df = minimum_gap_along_path(final_pitch, return_history=True)
 
-    # 输出龙头到达调头空间边界 r=4.5m 时的完整状态。
+    # 题目要求龙头盘入到调头空间边界，因此最终临界半径定义为边界半径 4.5m。
+    # 注意：path_best.head_radius 是全过程中最危险的位置，不再称为“最终临界半径”。
+    boundary_collision = evaluate_gap_at_radius(final_pitch, TURNING_RADIUS, keep_state=True)
+
+    # 输出龙头到达调头空间边界 rho=4.5m 时的完整状态。
     boundary_state = solve_state_by_head_radius(final_pitch, TURNING_RADIUS)
     boundary_df = build_boundary_dataframe(boundary_state)
 
     result = {
         "final_pitch": final_pitch,
-        "final_gap": final_best.global_gap,
-        "final_gap_radius": final_best.head_radius,
-        "best_pair": final_best.best_pair,
-        "final_pair_count": final_best.pair_count,
+
+        # 最终临界位置：按题意取调头空间边界，保证不大于 4.5m。
+        "final_gap": boundary_collision.global_gap,
+        "final_gap_radius": TURNING_RADIUS,
+        "best_pair": boundary_collision.best_pair,
+        "final_pair_count": boundary_collision.pair_count,
+
+        # 全路径安全性校验：这是 rho∈[4.5,16p] 中真正的最小净间隙。
+        "path_min_gap": path_best.global_gap,
+        "path_risk_radius": path_best.head_radius,
+        "path_risk_pair": path_best.best_pair,
+        "path_pair_count": path_best.pair_count,
+
         "bracket_df": bracket_df,
         "iterations": iterations,
         "radius_history_df": radius_history_df,
@@ -616,10 +842,13 @@ def main() -> None:
     result = solve_question3()
     print("\n第三问完成。")
     print(f"最小安全螺距 = {result['final_pitch']:.9f} m = {result['final_pitch'] * 100.0:.6f} cm")
-    print(f"临界最小净间隙 = {result['final_gap']:.12f} m")
-    print(f"临界半径 = {result['final_gap_radius']:.9f} m")
-    print(f"临界板凳对 = {result['best_pair']}")
-    print(f"临界状态检测对数量 = {result['final_pair_count']}")
+    print(f"最终临界半径（调头边界） = {result['final_gap_radius']:.9f} m")
+    print(f"边界处净间隙 = {result['final_gap']:.12f} m")
+    print(f"边界处板凳对 = {result['best_pair']}")
+    print(f"全过程最小净间隙 = {result['path_min_gap']:.12f} m")
+    print(f"全过程最危险极径 = {result['path_risk_radius']:.9f} m")
+    print(f"全过程最危险板凳对 = {result['path_risk_pair']}")
+    print(f"边界状态检测对数量 = {result['final_pair_count']}")
     print("\n已生成文件：")
     for path in result["output_paths"].values():
         print(path)
