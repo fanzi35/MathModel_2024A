@@ -1,29 +1,4 @@
-
-"""
-2024A 板凳龙 第三问：最小螺距（30cm 下界 + 龙头-内两层碰撞版）
-
-运行：
-    python question3.py
-
-建模前提：
-    沿用第二问的碰撞规律：限制继续盘入的主要约束来自龙头板凳
-    与其附近内两层螺线上的板凳之间的碰撞。因此第三问只检测：
-        龙头板凳 0 与“以内两层”范围内的非相邻板凳 j 的碰撞。
-
-严格性说明：
-    1. 螺距二分下界固定为板凳宽度 0.30 m；
-    2. 不经验指定某一组核心板凳对，例如不预设 (0, 19)；
-    3. 每个半径状态下，根据当前所有板凳的极角 theta_mid 自动确定内两层板凳集合；
-    4. 对该集合内全部龙头-非相邻板凳对做向量化 SAT 精确净间隙计算；
-    5. 对龙头半径区间采用粗扫 + 危险区间加密 + 最优点再加密的确定性数值搜索。
-
-注意：
-    这里的“严格”是指在所采用的建模前提内没有经验指定碰撞对；
-    连续半径区间仍然采用数值加密搜索近似求全过程最小净间隙。
-"""
-
 from __future__ import annotations
-
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -807,7 +782,6 @@ def solve_question3() -> dict:
     path_best, radius_history_df = minimum_gap_along_path(final_pitch, return_history=True)
 
     # 题目要求龙头盘入到调头空间边界，因此最终临界半径定义为边界半径 4.5m。
-    # 注意：path_best.head_radius 是全过程中最危险的位置，不再称为“最终临界半径”。
     boundary_collision = evaluate_gap_at_radius(final_pitch, TURNING_RADIUS, keep_state=True)
 
     # 输出龙头到达调头空间边界 rho=4.5m 时的完整状态。
