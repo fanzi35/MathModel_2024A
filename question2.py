@@ -325,6 +325,7 @@ def save_question2_outputs(result):
     gap_figure = dragon_data.OUTPUT_FIGURES_DIR / "question2_gap_curve.png"
     local_figure = dragon_data.OUTPUT_FIGURES_DIR / "question2_local_geometry.png"
     sat_figure = dragon_data.OUTPUT_FIGURES_DIR / "question2_sat_projection.png"
+    bench_geometry_figure = dragon_data.OUTPUT_FIGURES_DIR / "question2_bench_geometry.png"
 
     utils.save_question2_gap_curve(
         result["gap_history"],
@@ -347,6 +348,7 @@ def save_question2_outputs(result):
         sat_result=collision_state["best_sat"],
         output_path=sat_figure,
     )
+    utils.save_question2_bench_geometry_schematic(bench_geometry_figure)
 
     return {
         "excel": result2_excel,
@@ -355,6 +357,7 @@ def save_question2_outputs(result):
         "gap_figure": gap_figure,
         "local_figure": local_figure,
         "sat_figure": sat_figure,
+        "bench_geometry_figure": bench_geometry_figure,
     }
 
 
@@ -368,6 +371,7 @@ def main():
     print(output_paths["gap_figure"])
     print(output_paths["local_figure"])
     print(output_paths["sat_figure"])
+    print(output_paths["bench_geometry_figure"])
     print(f"终止时刻(安全侧) = {result['safe_time']:.6f} s")
     print(f"碰撞时刻(碰撞侧) = {result['collision_time']:.6f} s")
 
