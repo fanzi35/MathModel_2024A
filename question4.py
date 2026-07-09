@@ -1,3 +1,7 @@
+"""
+文件名：question4.py
+用于存放问题四解决代码
+"""
 import numpy as np
 
 import dragon_data

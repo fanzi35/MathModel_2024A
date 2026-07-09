@@ -1,3 +1,7 @@
+""""
+文件名：question1.py
+用于存放问题一的解决代码
+"""
 from pathlib import Path
 
 import numpy as np

@@ -1,3 +1,7 @@
+"""
+文件名：question2.py
+用于存放问题二的解决代码
+"""
 import math
 
 import numpy as np
